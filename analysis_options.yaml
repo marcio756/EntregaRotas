@@ -1,0 +1,12 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart" # Ignora a análise de código em ficheiros gerados pelo Isar
+  errors:
+    experimental_member_use: ignore
+    
+linter:
+  rules:
+    prefer_const_constructors: true
+    prefer_const_declarations: true
