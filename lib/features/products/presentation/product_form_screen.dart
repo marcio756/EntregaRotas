@@ -4,7 +4,9 @@ import '../providers/product_provider.dart';
 import '../../../core/database/collections/product_collection.dart';
 
 class ProductFormScreen extends ConsumerStatefulWidget {
-  const ProductFormScreen({super.key});
+  final Product? productToEdit; // Se for null cria, se tiver dados edita.
+
+  const ProductFormScreen({super.key, this.productToEdit});
 
   @override
   ConsumerState<ProductFormScreen> createState() => _ProductFormScreenState();
@@ -14,24 +16,63 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _categoryController = TextEditingController();
-  final _quantityController = TextEditingController(); // Alterado para Quantidade
+  final _quantityController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Preenche os dados se estivermos em modo de Edição
+    if (widget.productToEdit != null) {
+      _nameController.text = widget.productToEdit!.name;
+      _categoryController.text = widget.productToEdit!.category ?? '';
+      _quantityController.text = (widget.productToEdit!.defaultQuantity ?? 0).toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _categoryController.dispose();
+    _quantityController.dispose();
+    super.dispose();
+  }
 
   Future<void> _save() async {
     if (_formKey.currentState!.validate()) {
+      final productName = _nameController.text.trim();
+      
       final newProduct = Product()
-        ..name = _nameController.text
-        ..category = _categoryController.text.isEmpty ? null : _categoryController.text
-        ..defaultQuantity = int.tryParse(_quantityController.text) ?? 0; // Guarda a quantidade
+        ..name = productName
+        ..category = _categoryController.text.isEmpty ? null : _categoryController.text.trim()
+        ..defaultQuantity = int.tryParse(_quantityController.text) ?? 0;
 
-      await ref.read(productListProvider.notifier).addProduct(newProduct);
-      if (mounted) Navigator.pop(context);
+      // Se for edição, mantemos o ID original para o Isar sobrescrever
+      if (widget.productToEdit != null) {
+        newProduct.id = widget.productToEdit!.id;
+      }
+
+      try {
+        await ref.read(productListProvider.notifier).saveProduct(newProduct);
+        if (mounted) Navigator.pop(context);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.toString().replaceAll('Exception: ', '')),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isEditing = widget.productToEdit != null;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Criar Produto')),
+      appBar: AppBar(title: Text(isEditing ? 'Editar Produto' : 'Criar Produto')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Form(
@@ -41,7 +82,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(labelText: 'Nome do Produto (ex: Carcaça)*'),
-                validator: (v) => v!.isEmpty ? 'O nome é obrigatório' : null,
+                validator: (v) => v!.trim().isEmpty ? 'O nome é obrigatório' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
@@ -60,7 +101,10 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                 height: 56,
                 child: ElevatedButton(
                   onPressed: _save,
-                  child: const Text('GUARDAR PRODUTO'),
+                  child: Text(
+                    isEditing ? 'ATUALIZAR PRODUTO' : 'GUARDAR PRODUTO', 
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
               )
             ],

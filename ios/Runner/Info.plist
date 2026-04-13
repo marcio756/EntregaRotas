@@ -66,5 +66,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>A aplicação necessita de acesso ao GPS para otimizar as rotas e validar as entregas no mapa.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>A aplicação necessita de acesso ao GPS para otimizar as rotas e validar as entregas no mapa.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>A aplicação necessita de acesso ao GPS para otimizar as rotas e validar as entregas no mapa.</string>
 </dict>
 </plist>

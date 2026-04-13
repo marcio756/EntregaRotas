@@ -44,14 +44,19 @@ const ProductSchema = CollectionSchema(
   deserializeProp: _productDeserializeProp,
   idName: r'id',
   indexes: {
-    r'name': IndexSchema(
-      id: 879695947855722453,
-      name: r'name',
+    r'name_category': IndexSchema(
+      id: -4187016919391403777,
+      name: r'name_category',
       unique: true,
       replace: false,
       properties: [
         IndexPropertySchema(
           name: r'name',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+        IndexPropertySchema(
+          name: r'category',
           type: IndexType.hash,
           caseSensitive: true,
         )
@@ -142,56 +147,89 @@ void _productAttach(IsarCollection<dynamic> col, Id id, Product object) {
 }
 
 extension ProductByIndex on IsarCollection<Product> {
-  Future<Product?> getByName(String name) {
-    return getByIndex(r'name', [name]);
+  Future<Product?> getByNameCategory(String name, String? category) {
+    return getByIndex(r'name_category', [name, category]);
   }
 
-  Product? getByNameSync(String name) {
-    return getByIndexSync(r'name', [name]);
+  Product? getByNameCategorySync(String name, String? category) {
+    return getByIndexSync(r'name_category', [name, category]);
   }
 
-  Future<bool> deleteByName(String name) {
-    return deleteByIndex(r'name', [name]);
+  Future<bool> deleteByNameCategory(String name, String? category) {
+    return deleteByIndex(r'name_category', [name, category]);
   }
 
-  bool deleteByNameSync(String name) {
-    return deleteByIndexSync(r'name', [name]);
+  bool deleteByNameCategorySync(String name, String? category) {
+    return deleteByIndexSync(r'name_category', [name, category]);
   }
 
-  Future<List<Product?>> getAllByName(List<String> nameValues) {
-    final values = nameValues.map((e) => [e]).toList();
-    return getAllByIndex(r'name', values);
+  Future<List<Product?>> getAllByNameCategory(
+      List<String> nameValues, List<String?> categoryValues) {
+    final len = nameValues.length;
+    assert(categoryValues.length == len,
+        'All index values must have the same length');
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([nameValues[i], categoryValues[i]]);
+    }
+
+    return getAllByIndex(r'name_category', values);
   }
 
-  List<Product?> getAllByNameSync(List<String> nameValues) {
-    final values = nameValues.map((e) => [e]).toList();
-    return getAllByIndexSync(r'name', values);
+  List<Product?> getAllByNameCategorySync(
+      List<String> nameValues, List<String?> categoryValues) {
+    final len = nameValues.length;
+    assert(categoryValues.length == len,
+        'All index values must have the same length');
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([nameValues[i], categoryValues[i]]);
+    }
+
+    return getAllByIndexSync(r'name_category', values);
   }
 
-  Future<int> deleteAllByName(List<String> nameValues) {
-    final values = nameValues.map((e) => [e]).toList();
-    return deleteAllByIndex(r'name', values);
+  Future<int> deleteAllByNameCategory(
+      List<String> nameValues, List<String?> categoryValues) {
+    final len = nameValues.length;
+    assert(categoryValues.length == len,
+        'All index values must have the same length');
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([nameValues[i], categoryValues[i]]);
+    }
+
+    return deleteAllByIndex(r'name_category', values);
   }
 
-  int deleteAllByNameSync(List<String> nameValues) {
-    final values = nameValues.map((e) => [e]).toList();
-    return deleteAllByIndexSync(r'name', values);
+  int deleteAllByNameCategorySync(
+      List<String> nameValues, List<String?> categoryValues) {
+    final len = nameValues.length;
+    assert(categoryValues.length == len,
+        'All index values must have the same length');
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([nameValues[i], categoryValues[i]]);
+    }
+
+    return deleteAllByIndexSync(r'name_category', values);
   }
 
-  Future<Id> putByName(Product object) {
-    return putByIndex(r'name', object);
+  Future<Id> putByNameCategory(Product object) {
+    return putByIndex(r'name_category', object);
   }
 
-  Id putByNameSync(Product object, {bool saveLinks = true}) {
-    return putByIndexSync(r'name', object, saveLinks: saveLinks);
+  Id putByNameCategorySync(Product object, {bool saveLinks = true}) {
+    return putByIndexSync(r'name_category', object, saveLinks: saveLinks);
   }
 
-  Future<List<Id>> putAllByName(List<Product> objects) {
-    return putAllByIndex(r'name', objects);
+  Future<List<Id>> putAllByNameCategory(List<Product> objects) {
+    return putAllByIndex(r'name_category', objects);
   }
 
-  List<Id> putAllByNameSync(List<Product> objects, {bool saveLinks = true}) {
-    return putAllByIndexSync(r'name', objects, saveLinks: saveLinks);
+  List<Id> putAllByNameCategorySync(List<Product> objects,
+      {bool saveLinks = true}) {
+    return putAllByIndexSync(r'name_category', objects, saveLinks: saveLinks);
   }
 }
 
@@ -269,28 +307,29 @@ extension ProductQueryWhere on QueryBuilder<Product, Product, QWhereClause> {
     });
   }
 
-  QueryBuilder<Product, Product, QAfterWhereClause> nameEqualTo(String name) {
+  QueryBuilder<Product, Product, QAfterWhereClause> nameEqualToAnyCategory(
+      String name) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'name',
+        indexName: r'name_category',
         value: [name],
       ));
     });
   }
 
-  QueryBuilder<Product, Product, QAfterWhereClause> nameNotEqualTo(
+  QueryBuilder<Product, Product, QAfterWhereClause> nameNotEqualToAnyCategory(
       String name) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'name',
+              indexName: r'name_category',
               lower: [],
               upper: [name],
               includeUpper: false,
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'name',
+              indexName: r'name_category',
               lower: [name],
               includeLower: false,
               upper: [],
@@ -298,15 +337,84 @@ extension ProductQueryWhere on QueryBuilder<Product, Product, QWhereClause> {
       } else {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'name',
+              indexName: r'name_category',
               lower: [name],
               includeLower: false,
               upper: [],
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'name',
+              indexName: r'name_category',
               lower: [],
               upper: [name],
+              includeUpper: false,
+            ));
+      }
+    });
+  }
+
+  QueryBuilder<Product, Product, QAfterWhereClause> nameEqualToCategoryIsNull(
+      String name) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.equalTo(
+        indexName: r'name_category',
+        value: [name, null],
+      ));
+    });
+  }
+
+  QueryBuilder<Product, Product, QAfterWhereClause>
+      nameEqualToCategoryIsNotNull(String name) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.between(
+        indexName: r'name_category',
+        lower: [name, null],
+        includeLower: false,
+        upper: [
+          name,
+        ],
+      ));
+    });
+  }
+
+  QueryBuilder<Product, Product, QAfterWhereClause> nameCategoryEqualTo(
+      String name, String? category) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.equalTo(
+        indexName: r'name_category',
+        value: [name, category],
+      ));
+    });
+  }
+
+  QueryBuilder<Product, Product, QAfterWhereClause>
+      nameEqualToCategoryNotEqualTo(String name, String? category) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'name_category',
+              lower: [name],
+              upper: [name, category],
+              includeUpper: false,
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'name_category',
+              lower: [name, category],
+              includeLower: false,
+              upper: [name],
+            ));
+      } else {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'name_category',
+              lower: [name, category],
+              includeLower: false,
+              upper: [name],
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'name_category',
+              lower: [name],
+              upper: [name, category],
               includeUpper: false,
             ));
       }

@@ -22,10 +22,10 @@ const ClientPointSchema = CollectionSchema(
       name: r'clientName',
       type: IsarType.string,
     ),
-    r'contact': PropertySchema(
+    r'defaultProducts': PropertySchema(
       id: 1,
-      name: r'contact',
-      type: IsarType.string,
+      name: r'defaultProducts',
+      type: IsarType.stringList,
     ),
     r'deliveryNotes': PropertySchema(
       id: 2,
@@ -64,10 +64,11 @@ int _clientPointEstimateSize(
 ) {
   var bytesCount = offsets.last;
   bytesCount += 3 + object.clientName.length * 3;
+  bytesCount += 3 + object.defaultProducts.length * 3;
   {
-    final value = object.contact;
-    if (value != null) {
-      bytesCount += 3 + value.length * 3;
+    for (var i = 0; i < object.defaultProducts.length; i++) {
+      final value = object.defaultProducts[i];
+      bytesCount += value.length * 3;
     }
   }
   {
@@ -86,7 +87,7 @@ void _clientPointSerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.clientName);
-  writer.writeString(offsets[1], object.contact);
+  writer.writeStringList(offsets[1], object.defaultProducts);
   writer.writeString(offsets[2], object.deliveryNotes);
   writer.writeDouble(offsets[3], object.latitude);
   writer.writeDouble(offsets[4], object.longitude);
@@ -100,7 +101,7 @@ ClientPoint _clientPointDeserialize(
 ) {
   final object = ClientPoint();
   object.clientName = reader.readString(offsets[0]);
-  object.contact = reader.readStringOrNull(offsets[1]);
+  object.defaultProducts = reader.readStringList(offsets[1]) ?? [];
   object.deliveryNotes = reader.readStringOrNull(offsets[2]);
   object.id = id;
   object.latitude = reader.readDouble(offsets[3]);
@@ -118,7 +119,7 @@ P _clientPointDeserializeProp<P>(
     case 0:
       return (reader.readString(offset)) as P;
     case 1:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readStringList(offset) ?? []) as P;
     case 2:
       return (reader.readStringOrNull(offset)) as P;
     case 3:
@@ -360,30 +361,13 @@ extension ClientPointQueryFilter
   }
 
   QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
-      contactIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNull(
-        property: r'contact',
-      ));
-    });
-  }
-
-  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
-      contactIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNotNull(
-        property: r'contact',
-      ));
-    });
-  }
-
-  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition> contactEqualTo(
-    String? value, {
+      defaultProductsElementEqualTo(
+    String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'contact',
+        property: r'defaultProducts',
         value: value,
         caseSensitive: caseSensitive,
       ));
@@ -391,46 +375,48 @@ extension ClientPointQueryFilter
   }
 
   QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
-      contactGreaterThan(
-    String? value, {
+      defaultProductsElementGreaterThan(
+    String value, {
     bool include = false,
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.greaterThan(
         include: include,
-        property: r'contact',
+        property: r'defaultProducts',
         value: value,
         caseSensitive: caseSensitive,
       ));
     });
   }
 
-  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition> contactLessThan(
-    String? value, {
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsElementLessThan(
+    String value, {
     bool include = false,
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.lessThan(
         include: include,
-        property: r'contact',
+        property: r'defaultProducts',
         value: value,
         caseSensitive: caseSensitive,
       ));
     });
   }
 
-  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition> contactBetween(
-    String? lower,
-    String? upper, {
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsElementBetween(
+    String lower,
+    String upper, {
     bool includeLower = true,
     bool includeUpper = true,
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.between(
-        property: r'contact',
+        property: r'defaultProducts',
         lower: lower,
         includeLower: includeLower,
         upper: upper,
@@ -441,50 +427,51 @@ extension ClientPointQueryFilter
   }
 
   QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
-      contactStartsWith(
+      defaultProductsElementStartsWith(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.startsWith(
-        property: r'contact',
+        property: r'defaultProducts',
         value: value,
         caseSensitive: caseSensitive,
       ));
     });
   }
 
-  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition> contactEndsWith(
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsElementEndsWith(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.endsWith(
-        property: r'contact',
+        property: r'defaultProducts',
         value: value,
         caseSensitive: caseSensitive,
       ));
     });
   }
 
-  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition> contactContains(
-      String value,
-      {bool caseSensitive = true}) {
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsElementContains(String value,
+          {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.contains(
-        property: r'contact',
+        property: r'defaultProducts',
         value: value,
         caseSensitive: caseSensitive,
       ));
     });
   }
 
-  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition> contactMatches(
-      String pattern,
-      {bool caseSensitive = true}) {
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsElementMatches(String pattern,
+          {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.matches(
-        property: r'contact',
+        property: r'defaultProducts',
         wildcard: pattern,
         caseSensitive: caseSensitive,
       ));
@@ -492,22 +479,111 @@ extension ClientPointQueryFilter
   }
 
   QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
-      contactIsEmpty() {
+      defaultProductsElementIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'contact',
+        property: r'defaultProducts',
         value: '',
       ));
     });
   }
 
   QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
-      contactIsNotEmpty() {
+      defaultProductsElementIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.greaterThan(
-        property: r'contact',
+        property: r'defaultProducts',
         value: '',
       ));
+    });
+  }
+
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'defaultProducts',
+        length,
+        true,
+        length,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'defaultProducts',
+        0,
+        true,
+        0,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'defaultProducts',
+        0,
+        false,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsLengthLessThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'defaultProducts',
+        0,
+        true,
+        length,
+        include,
+      );
+    });
+  }
+
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsLengthGreaterThan(
+    int length, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'defaultProducts',
+        length,
+        include,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<ClientPoint, ClientPoint, QAfterFilterCondition>
+      defaultProductsLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'defaultProducts',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
     });
   }
 
@@ -869,18 +945,6 @@ extension ClientPointQuerySortBy
     });
   }
 
-  QueryBuilder<ClientPoint, ClientPoint, QAfterSortBy> sortByContact() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contact', Sort.asc);
-    });
-  }
-
-  QueryBuilder<ClientPoint, ClientPoint, QAfterSortBy> sortByContactDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contact', Sort.desc);
-    });
-  }
-
   QueryBuilder<ClientPoint, ClientPoint, QAfterSortBy> sortByDeliveryNotes() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'deliveryNotes', Sort.asc);
@@ -930,18 +994,6 @@ extension ClientPointQuerySortThenBy
   QueryBuilder<ClientPoint, ClientPoint, QAfterSortBy> thenByClientNameDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'clientName', Sort.desc);
-    });
-  }
-
-  QueryBuilder<ClientPoint, ClientPoint, QAfterSortBy> thenByContact() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contact', Sort.asc);
-    });
-  }
-
-  QueryBuilder<ClientPoint, ClientPoint, QAfterSortBy> thenByContactDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'contact', Sort.desc);
     });
   }
 
@@ -1004,10 +1056,10 @@ extension ClientPointQueryWhereDistinct
     });
   }
 
-  QueryBuilder<ClientPoint, ClientPoint, QDistinct> distinctByContact(
-      {bool caseSensitive = true}) {
+  QueryBuilder<ClientPoint, ClientPoint, QDistinct>
+      distinctByDefaultProducts() {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'contact', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'defaultProducts');
     });
   }
 
@@ -1046,9 +1098,10 @@ extension ClientPointQueryProperty
     });
   }
 
-  QueryBuilder<ClientPoint, String?, QQueryOperations> contactProperty() {
+  QueryBuilder<ClientPoint, List<String>, QQueryOperations>
+      defaultProductsProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'contact');
+      return query.addPropertyName(r'defaultProducts');
     });
   }
 

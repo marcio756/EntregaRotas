@@ -1,98 +1,135 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../products/providers/product_provider.dart';
+import '../providers/client_provider.dart';
+import '../../../core/database/collections/client_point_collection.dart';
+import '../../../core/database/collections/product_collection.dart';
+import '../../../core/database/collections/route_collection.dart';
+import '../../routes/providers/route_stop_provider.dart';
 
-/// Screen responsible for creating a new Client Point.
-/// Captures exact GPS coordinates (Pinpoint) for future geofencing routing.
-class AddClientPointScreen extends StatefulWidget {
-  const AddClientPointScreen({super.key});
+class AddClientPointScreen extends ConsumerStatefulWidget {
+  final DeliveryRoute? activeRoute;
+
+  const AddClientPointScreen({super.key, this.activeRoute});
 
   @override
-  State<AddClientPointScreen> createState() => _AddClientPointScreenState();
+  ConsumerState<AddClientPointScreen> createState() => _AddClientPointScreenState();
 }
 
-class _AddClientPointScreenState extends State<AddClientPointScreen> {
+class _AddClientPointScreenState extends ConsumerState<AddClientPointScreen> {
   final _formKey = GlobalKey<FormState>();
-  
   final _nameController = TextEditingController();
-  final _contactController = TextEditingController();
   final _notesController = TextEditingController();
   
   Position? _capturedPosition;
   bool _isCapturingGPS = false;
+  
+  final Map<int, int> _selectedQuantities = {};
+  final List<Product> _addedProducts = [];
 
   @override
   void dispose() {
     _nameController.dispose();
-    _contactController.dispose();
     _notesController.dispose();
     super.dispose();
   }
 
-  /// Requests permissions and captures the current exact GPS location.
-  /// Uses a Progress Illusion to reassure the user during the hardware delay.
+  void _showProductSelector(List<Product> catalog) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => ListView.builder(
+        itemCount: catalog.length,
+        itemBuilder: (context, index) {
+          final prod = catalog[index];
+          return ListTile(
+            leading: const Icon(Icons.bakery_dining),
+            title: Text(prod.name),
+            subtitle: Text(prod.category ?? 'Geral'),
+            onTap: () {
+              setState(() {
+                if (!_addedProducts.any((p) => p.id == prod.id)) {
+                  _addedProducts.add(prod);
+                  _selectedQuantities[prod.id] = prod.defaultQuantity ?? 1;
+                }
+              });
+              Navigator.pop(context);
+            },
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _captureLocation() async {
-    setState(() {
-      _isCapturingGPS = true;
-    });
-
+    setState(() => _isCapturingGPS = true);
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          throw Exception('Permissão de localização negada.');
-        }
-      }
+      Position? position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 4),
+      ).onError((error, stackTrace) => Geolocator.getLastKnownPosition().then((value) => value!));
 
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
-      );
-
-      setState(() {
-        _capturedPosition = position;
-        _isCapturingGPS = false;
-      });
+      if (mounted) setState(() { _capturedPosition = position; _isCapturingGPS = false; });
     } catch (e) {
-      setState(() {
-        _isCapturingGPS = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao capturar GPS: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
+      setState(() => _isCapturingGPS = false);
     }
   }
 
-  void _saveClientPoint() {
+  void _resetLocation() {
+    setState(() {
+      _capturedPosition = null;
+      _isCapturingGPS = false;
+    });
+  }
+
+  Future<void> _saveClientPoint() async {
     if (_formKey.currentState!.validate()) {
       if (_capturedPosition == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('É obrigatório capturar a localização (GPS).')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Captura GPS obrigatória.')));
         return;
       }
+
+      String finalName = _nameController.text.trim();
+      if (finalName.isEmpty) {
+        final currentClientsCount = ref.read(clientListProvider).length;
+        finalName = 'Cliente ${currentClientsCount + 1}';
+      }
+
+      final List<String> defaultOrder = [];
+      for (var prod in _addedProducts) {
+        final qty = _selectedQuantities[prod.id] ?? 0;
+        if (qty > 0) {
+          defaultOrder.add('${qty}x ${prod.name} (${prod.category ?? 'Geral'})');
+        }
+      }
       
-      // Future integration: Save to Isar Database via Riverpod.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ponto de Cliente guardado com sucesso!')),
-      );
-      Navigator.pop(context); // Continuity Transition back to previous screen
+      final newClient = ClientPoint()
+        ..clientName = finalName
+        ..deliveryNotes = _notesController.text.trim()
+        ..latitude = _capturedPosition!.latitude
+        ..longitude = _capturedPosition!.longitude
+        ..defaultProducts = defaultOrder;
+
+      // Grava o cliente globalmente
+      await ref.read(clientListProvider.notifier).addClient(newClient);
+
+      // Se viemos do mapa de trabalho, liga o cliente imediatamente à rota!
+      if (widget.activeRoute != null) {
+        await ref.read(routeStopsProvider(widget.activeRoute!.id).notifier)
+           .addClientToRoute(widget.activeRoute!, newClient, defaultOrder);
+      }
+
+      if (mounted) Navigator.pop(context);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final catalog = ref.watch(productListProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Novo Ponto de Entrega', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
+      appBar: AppBar(title: const Text('Novo Cliente')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Form(
@@ -100,51 +137,86 @@ class _AddClientPointScreenState extends State<AddClientPointScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Dados do Cliente', style: theme.textTheme.titleLarge?.copyWith(fontSize: 20)),
-              const SizedBox(height: 16),
               _buildTextField(
                 controller: _nameController,
-                label: 'Nome do Cliente / Local',
+                label: 'Nome (Vazio para "Cliente X")',
                 icon: Icons.person_outline,
-                isRequired: true,
-              ),
-              const SizedBox(height: 16),
-              _buildTextField(
-                controller: _contactController,
-                label: 'Contacto (Opcional)',
-                icon: Icons.phone_outlined,
-                keyboardType: TextInputType.phone,
               ),
               const SizedBox(height: 16),
               _buildTextField(
                 controller: _notesController,
-                label: 'Notas de Entrega (ex: Deixar no portão)',
+                label: 'Notas de Entrega',
                 icon: Icons.note_alt_outlined,
-                maxLines: 3,
+                maxLines: 2,
               ),
+              const SizedBox(height: 24),
+              _buildGPSCaptureCard(theme),
               const SizedBox(height: 32),
               
-              Text('Localização Exata (Pinpoint)', style: theme.textTheme.titleLarge?.copyWith(fontSize: 20)),
-              const SizedBox(height: 16),
-              _buildGPSCaptureCard(theme),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(child: Text('Produtos Escolhidos', style: theme.textTheme.titleLarge, overflow: TextOverflow.ellipsis)),
+                  TextButton.icon(
+                    onPressed: () => _showProductSelector(catalog),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Adicionar'),
+                  ),
+                ],
+              ),
+              const Divider(),
+              
+              if (_addedProducts.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(child: Text('Nenhum produto selecionado.', style: TextStyle(color: Colors.grey))),
+                )
+              else
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _addedProducts.length,
+                  itemBuilder: (context, index) {
+                    final product = _addedProducts[index];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(product.name),
+                      subtitle: Text(product.category ?? 'Geral'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline),
+                            onPressed: () => setState(() {
+                              if (_selectedQuantities[product.id]! > 1) {
+                                _selectedQuantities[product.id] = _selectedQuantities[product.id]! - 1;
+                              } else {
+                                _addedProducts.removeAt(index);
+                                _selectedQuantities.remove(product.id);
+                              }
+                            }),
+                          ),
+                          Text('${_selectedQuantities[product.id]}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline, color: Color(0xFF64FFDA)),
+                            onPressed: () => setState(() {
+                              _selectedQuantities[product.id] = _selectedQuantities[product.id]! + 1;
+                            }),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               
               const SizedBox(height: 48),
               SizedBox(
                 width: double.infinity,
-                height: 56, // Large touch target
+                height: 56,
                 child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
+                  style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.black),
                   onPressed: _saveClientPoint,
-                  child: const Text(
-                    'Guardar Ponto de Entrega',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
+                  child: const Text('GUARDAR CLIENTE', style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -154,83 +226,51 @@ class _AddClientPointScreenState extends State<AddClientPointScreen> {
     );
   }
 
-  /// Helper to render standardized inputs.
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    bool isRequired = false,
-    TextInputType keyboardType = TextInputType.text,
-    int maxLines = 1,
-  }) {
+  Widget _buildTextField({required TextEditingController controller, required String label, required IconData icon, int maxLines = 1}) {
     return TextFormField(
       controller: controller,
-      keyboardType: keyboardType,
       maxLines: maxLines,
-      validator: isRequired 
-          ? (value) => value != null && value.isEmpty ? 'Campo obrigatório' : null 
-          : null,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, color: Colors.grey),
-        alignLabelWithHint: maxLines > 1,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFF333333)),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
 
-  /// Builds the interactive GPS capture zone.
   Widget _buildGPSCaptureCard(ThemeData theme) {
     return InkWell(
-      onTap: _isCapturingGPS ? null : _captureLocation,
+      onTap: _isCapturingGPS || _capturedPosition != null ? null : _captureLocation,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         decoration: BoxDecoration(
-          // Resolved the deprecation warning using withValues(alpha: ...)
-          color: _capturedPosition != null 
-              ? theme.colorScheme.secondary.withValues(alpha: 0.1) 
-              : theme.cardTheme.color,
+          color: _capturedPosition != null ? theme.colorScheme.secondary.withValues(alpha: 0.1) : theme.cardTheme.color,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _capturedPosition != null 
-                ? theme.colorScheme.secondary 
-                : const Color(0xFF333333),
-          ),
+          border: Border.all(color: _capturedPosition != null ? theme.colorScheme.secondary : const Color(0xFF333333)),
         ),
-        child: Column(
-          children: [
-            if (_isCapturingGPS)
-              const CircularProgressIndicator().animate().fadeIn()
-            else if (_capturedPosition != null)
-              Column(
+        child: Center(
+          child: _isCapturingGPS 
+            ? const CircularProgressIndicator()
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.check_circle, color: theme.colorScheme.secondary, size: 40)
-                      .animate().scale(duration: 300.ms),
-                  const SizedBox(height: 8),
-                  Text('Coordenadas Registadas', style: TextStyle(color: theme.colorScheme.secondary, fontWeight: FontWeight.bold)),
-                  Text(
-                    'Lat: ${_capturedPosition!.latitude.toStringAsFixed(5)}, Lng: ${_capturedPosition!.longitude.toStringAsFixed(5)}',
-                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  Icon(_capturedPosition != null ? Icons.check_circle : Icons.gps_fixed, color: _capturedPosition != null ? Colors.green : theme.colorScheme.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _capturedPosition != null ? 'Localização Capturada' : 'Tocar para Capturar GPS Rápido',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
-                ],
-              )
-            else
-              Column(
-                children: [
-                  Icon(Icons.gps_fixed, color: theme.colorScheme.primary, size: 40),
-                  const SizedBox(height: 8),
-                  const Text('Tocar para capturar GPS atual'),
+                  if (_capturedPosition != null)
+                    IconButton(
+                      icon: const Icon(Icons.refresh, color: Colors.grey),
+                      onPressed: _resetLocation,
+                      tooltip: 'Limpar Localização',
+                    )
                 ],
               ),
-          ],
         ),
       ),
     );

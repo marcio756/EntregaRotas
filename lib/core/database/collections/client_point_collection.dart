@@ -10,8 +10,6 @@ class ClientPoint {
 
   late String clientName;
 
-  String? contact;
-
   String? deliveryNotes;
 
   /// Latitude for exact Pinpoint and Geofencing (30m radius detection)
@@ -19,4 +17,8 @@ class ClientPoint {
 
   /// Longitude for exact Pinpoint and Geofencing (30m radius detection)
   late double longitude;
+
+  /// Encomenda padrão associada a este cliente no momento da criação
+  /// (ex: ["2x Pão de Forma", "10x Carcaça"]).
+  List<String> defaultProducts = [];
 }

@@ -3,12 +3,12 @@ import 'package:isar/isar.dart';
 part 'product_collection.g.dart';
 
 /// Represents a Product in the catalog.
-/// Only the name is mandatory for quick creation.
 @collection
 class Product {
   Id id = Isar.autoIncrement;
 
-  @Index(unique: true)
+  // CORREÇÃO: Índice Composto. Permite "Pão" (Trigo) e "Pão" (Centeio)
+  @Index(unique: true, composite: [CompositeIndex('category')])
   late String name;
 
   String? category;

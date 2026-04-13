@@ -18,5 +18,12 @@ class ClientNotifier extends StateNotifier<List<ClientPoint>> {
     state = await isar.clientPoints.where().findAll();
   }
 
-  // A função de adicionar cliente será implementada no formulário de GPS futuramente.
+  /// Guarda um novo cliente e a sua encomenda padrão na base de dados Isar
+  Future<void> addClient(ClientPoint client) async {
+    final isar = await isarService.db;
+    await isar.writeTxn(() async {
+      await isar.clientPoints.put(client);
+    });
+    await _loadClients();
+  }
 }

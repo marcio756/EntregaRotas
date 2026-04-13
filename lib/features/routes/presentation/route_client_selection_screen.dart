@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/collections/route_collection.dart';
 import '../../../core/database/collections/client_point_collection.dart';
+import '../../../core/database/collections/product_collection.dart';
 import '../../clients/providers/client_provider.dart';
 import '../../products/providers/product_provider.dart';
 import '../providers/route_stop_provider.dart';
@@ -31,7 +32,7 @@ class _RouteClientSelectionScreenState extends ConsumerState<RouteClientSelectio
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final clients = ref.watch(clientListProvider);
 
     return Scaffold(
@@ -50,7 +51,7 @@ class _RouteClientSelectionScreenState extends ConsumerState<RouteClientSelectio
                   child: ListTile(
                     leading: const Icon(Icons.person_pin_circle_outlined),
                     title: Text(client.clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(client.contact ?? 'Sem contacto'),
+                    subtitle: Text(client.deliveryNotes ?? 'Sem notas de entrega'),
                     trailing: const Icon(Icons.add_circle_outline, color: Color(0xFF64FFDA)),
                     onTap: () => _showProductAllocationSheet(client),
                   ),
@@ -73,18 +74,33 @@ class _ProductAllocationSheet extends ConsumerStatefulWidget {
 }
 
 class _ProductAllocationSheetState extends ConsumerState<_ProductAllocationSheet> {
-  // Map to hold temporary quantities while the user adjusts them in the sheet
-  final Map<String, int> _selectedQuantities = {};
+  // Map to hold temporary quantities while the user adjusts them in the sheet (Key is Product ID)
+  final Map<int, int> _selectedQuantities = {};
+  final List<Product> _activeInSheet = [];
 
   @override
   Widget build(BuildContext context) {
     final products = ref.watch(productListProvider);
     final theme = Theme.of(context);
 
-    // Initialize quantities with the product's default quantity for speed.
+    // Injeção da "Encomenda Padrão" do Cliente
     if (_selectedQuantities.isEmpty && products.isNotEmpty) {
-      for (var p in products) {
-        _selectedQuantities[p.name] = p.defaultQuantity ?? 0;
+      for (var item in widget.client.defaultProducts) {
+        final parts = item.split('x ');
+        if (parts.length >= 2) {
+          final qty = int.tryParse(parts[0]) ?? 0;
+          // Procuramos o produto para garantir a correspondência pelo ID
+          final productNameWithCategory = parts[1].trim();
+          final pureName = productNameWithCategory.split(' (')[0];
+          
+          try {
+            final p = products.firstWhere((prod) => prod.name == pureName);
+            _selectedQuantities[p.id] = qty;
+            _activeInSheet.add(p);
+          } catch (e) {
+            // Ignora se o produto foi apagado do catálogo entretanto
+          }
+        }
       }
     }
 
@@ -104,25 +120,32 @@ class _ProductAllocationSheetState extends ConsumerState<_ProductAllocationSheet
           const Text('Ajuste as quantidades para este dia específico.', style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 24),
           
-          if (products.isEmpty)
+          if (_activeInSheet.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 32.0),
-              child: Center(child: Text('O Catálogo de produtos está vazio.')),
+              child: Center(child: Text('Este cliente não tem encomenda padrão configurada.', textAlign: TextAlign.center)),
             )
           else
             Flexible(
               child: ListView.builder(
                 shrinkWrap: true,
-                itemCount: products.length,
+                itemCount: _activeInSheet.length,
                 itemBuilder: (context, index) {
-                  final product = products[index];
+                  final product = _activeInSheet[index];
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 16.0),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
-                          child: Text(product.name, style: const TextStyle(fontSize: 16)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(product.name, style: const TextStyle(fontSize: 16)),
+                              if (product.category != null)
+                                Text(product.category!, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            ],
+                          ),
                         ),
                         Row(
                           children: [
@@ -130,8 +153,8 @@ class _ProductAllocationSheetState extends ConsumerState<_ProductAllocationSheet
                               icon: const Icon(Icons.remove_circle_outline),
                               onPressed: () {
                                 setState(() {
-                                  if ((_selectedQuantities[product.name] ?? 0) > 0) {
-                                    _selectedQuantities[product.name] = (_selectedQuantities[product.name] ?? 0) - 1;
+                                  if ((_selectedQuantities[product.id] ?? 0) > 0) {
+                                    _selectedQuantities[product.id] = (_selectedQuantities[product.id] ?? 0) - 1;
                                   }
                                 });
                               },
@@ -139,7 +162,7 @@ class _ProductAllocationSheetState extends ConsumerState<_ProductAllocationSheet
                             SizedBox(
                               width: 40,
                               child: Text(
-                                '${_selectedQuantities[product.name] ?? 0}',
+                                '${_selectedQuantities[product.id] ?? 0}',
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                               ),
@@ -148,7 +171,7 @@ class _ProductAllocationSheetState extends ConsumerState<_ProductAllocationSheet
                               icon: const Icon(Icons.add_circle_outline, color: Color(0xFF64FFDA)),
                               onPressed: () {
                                 setState(() {
-                                  _selectedQuantities[product.name] = (_selectedQuantities[product.name] ?? 0) + 1;
+                                  _selectedQuantities[product.id] = (_selectedQuantities[product.id] ?? 0) + 1;
                                 });
                               },
                             ),
@@ -171,20 +194,19 @@ class _ProductAllocationSheetState extends ConsumerState<_ProductAllocationSheet
                 foregroundColor: Colors.black,
               ),
               onPressed: () {
-                // Compile final list ignoring zero quantities
                 final List<String> deliverySummary = [];
-                _selectedQuantities.forEach((prodName, qty) {
+                _selectedQuantities.forEach((id, qty) {
                   if (qty > 0) {
-                    deliverySummary.add('${qty}x $prodName');
+                    final p = products.firstWhere((prod) => prod.id == id);
+                    deliverySummary.add('${qty}x ${p.name}');
                   }
                 });
 
                 if (deliverySummary.isEmpty) {
-                  Navigator.pop(context); // Cancel if nothing selected
+                  Navigator.pop(context);
                   return;
                 }
 
-                // Call the provider to save the relational link in Isar
                 ref.read(routeStopsProvider(widget.route.id).notifier)
                    .addClientToRoute(widget.route, widget.client, deliverySummary);
                 

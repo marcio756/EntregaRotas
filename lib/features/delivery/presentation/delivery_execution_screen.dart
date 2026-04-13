@@ -1,65 +1,56 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import '../../../core/database/collections/route_collection.dart';
+import '../../routes/providers/route_stop_provider.dart';
 import 'widgets/delivery_card.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'daily_summary_screen.dart';
+import 'delivery_map_screen.dart';
 
-/// Manages the real-time execution of the delivery route.
-/// Implements Skeleton loading for perception of speed, Optimistic UI for 
-/// instantaneous delivery validation, and a 5-second undo mechanism.
 class DeliveryExecutionScreen extends ConsumerStatefulWidget {
-  const DeliveryExecutionScreen({super.key});
+  final DeliveryRoute activeRoute;
+
+  const DeliveryExecutionScreen({super.key, required this.activeRoute});
 
   @override
   ConsumerState<DeliveryExecutionScreen> createState() => _DeliveryExecutionScreenState();
 }
 
 class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScreen> {
-  bool _isLoading = true;
-  
-  // Temporary local state simulation. In production, this comes from Riverpod Provider & Isar.
-  List<Map<String, dynamic>> _deliveries = [];
+  Position? _currentLocation;
 
   @override
   void initState() {
     super.initState();
-    _simulateLoading();
+    _startLocationTracking();
   }
 
-  /// Simulates fetching offline data from Isar to demonstrate the Skeleton screen.
-  Future<void> _simulateLoading() async {
-    await Future.delayed(const Duration(milliseconds: 1500));
-    if (mounted) {
-      setState(() {
-        _deliveries = [
-          {"id": "1", "client": "Café Central", "address": "Rua Principal, 45", "products": "20x Carcaça, 5x Pão Forma", "isNear": true},
-          {"id": "2", "client": "D. Maria Joana", "address": "Largo da Igreja, 2", "products": "2x Pão de Centeio", "isNear": false},
-          {"id": "3", "client": "Minimercado Silva", "address": "Av. da Liberdade, 102", "products": "30x Carcaça", "isNear": false},
-        ];
-        _isLoading = false;
-      });
-    }
-  }
+  Future<void> _startLocationTracking() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
 
-  /// Handles the optimistic UI delivery action.
-  /// Removes the item instantly and provides a 5-second window to undo the action.
-  void _handleDeliveryComplete(int index, Map<String, dynamic> delivery) {
-    setState(() {
-      _deliveries.removeAt(index);
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return;
+
+    Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
+    ).listen((Position position) {
+      if (mounted) setState(() => _currentLocation = position);
     });
+  }
 
+  void _handleDeliveryComplete(int stopId, String clientName) {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${delivery["client"]} entregue com sucesso.'),
-        duration: const Duration(seconds: 5), // 5 seconds constraint for Undo
+        content: Text('$clientName entregue.'),
+        duration: const Duration(seconds: 5),
         action: SnackBarAction(
           label: 'DESFAZER',
           textColor: Theme.of(context).colorScheme.primary,
           onPressed: () {
-            // Reverts the optimistic action if triggered accidentally.
-            setState(() {
-              _deliveries.insert(index, delivery);
-            });
+            // Futura implementação de Undo
           },
         ),
       ),
@@ -68,58 +59,141 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final stops = ref.watch(routeStopsProvider(widget.activeRoute.id));
+    final pendingStops = stops.where((s) => !s.isDelivered).toList();
+
+    // Motor de Cálculo: Somatório do stock necessário para a rota atual
+    Map<String, int> productTotals = {};
+    for (var stop in pendingStops) {
+      for (var item in stop.productsToDeliver) {
+        final parts = item.split('x ');
+        if (parts.length == 2) {
+          final qty = int.tryParse(parts[0]) ?? 0;
+          final name = parts[1].trim();
+          productTotals[name] = (productTotals[name] ?? 0) + qty;
+        }
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Rota Atual', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: false,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Rota em Curso', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            Text(widget.activeRoute.name, style: TextStyle(fontSize: 14, color: theme.colorScheme.primary)),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.map_outlined),
-            onPressed: () {
-              // Future navigation to Map View with Continuity Transition
-            },
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                // Injetamos a Rota Ativa no Mapa
+                builder: (context) => DeliveryMapScreen(activeRoute: widget.activeRoute),
+              ),
+            ),
           )
         ],
       ),
-      body: _isLoading 
-          ? _buildSkeletonList() 
-          : _buildDeliveryList(),
-    );
-  }
+      body: Column(
+        children: [
+          // Banner de Stock Necessário
+          if (productTotals.isNotEmpty)
+            Container(
+              width: double.infinity,
+              color: theme.colorScheme.surface,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Text('Carga Necessária para Terminar:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 40,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      scrollDirection: Axis.horizontal,
+                      itemCount: productTotals.keys.length,
+                      separatorBuilder: (context, index) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        String productName = productTotals.keys.elementAt(index);
+                        int totalQty = productTotals[productName]!;
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              Text('$totalQty', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 16)),
+                              const SizedBox(width: 6),
+                              Text(productName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+          const Divider(height: 1, color: Color(0xFF333333)),
 
-  /// Renders a skeleton screen to improve perceived performance during load.
-  Widget _buildSkeletonList() {
-    return ListView.builder(
-      itemCount: 4,
-      itemBuilder: (context, index) {
-        return const Card(
-          child: SizedBox(height: 140, width: double.infinity),
-        ).animate(onPlay: (controller) => controller.repeat())
-         .shimmer(duration: 1200.ms, color: Colors.white10);
-      },
-    );
-  }
+          // Lista de Entregas
+          Expanded(
+            child: pendingStops.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('Todas as entregas concluídas!').animate().fadeIn().scale(),
+                        const SizedBox(height: 24),
+                        ElevatedButton(
+                          onPressed: () => Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(builder: (context) => const DailySummaryScreen()),
+                          ),
+                          child: const Text('VER RESUMO DO DIA', style: TextStyle(fontWeight: FontWeight.bold)),
+                        )
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.only(top: 8),
+                    itemCount: pendingStops.length,
+                    itemBuilder: (context, index) {
+                      final stop = pendingStops[index];
+                      final client = stop.clientPoint.value;
+                      if (client == null) return const SizedBox.shrink();
 
-  /// Renders the actual list of deliveries with Context Transitions.
-  Widget _buildDeliveryList() {
-    if (_deliveries.isEmpty) {
-      return const Center(
-        child: Text('Todas as entregas concluídas!'),
-      );
-    }
+                      bool isNear = false;
+                      if (_currentLocation != null) {
+                        final distance = Geolocator.distanceBetween(
+                          _currentLocation!.latitude, _currentLocation!.longitude,
+                          client.latitude, client.longitude,
+                        );
+                        isNear = distance <= 30.0;
+                      }
 
-    return ListView.builder(
-      itemCount: _deliveries.length,
-      itemBuilder: (context, index) {
-        final delivery = _deliveries[index];
-        return DeliveryCard(
-          clientName: delivery["client"],
-          address: delivery["address"],
-          productsSummary: delivery["products"],
-          isNear: delivery["isNear"],
-          onDelivered: () => _handleDeliveryComplete(index, delivery),
-        );
-      },
+                      return DeliveryCard(
+                        clientName: client.clientName,
+                        address: client.deliveryNotes ?? 'Sem notas de entrega',
+                        productsSummary: stop.productsToDeliver.join(', '),
+                        isNear: isNear,
+                        onDelivered: () => _handleDeliveryComplete(stop.id, client.clientName),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
