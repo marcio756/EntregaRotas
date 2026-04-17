@@ -1,3 +1,5 @@
+// Ficheiro: lib/features/clients/providers/client_provider.dart
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../main.dart';
 import '../../../core/database/collections/client_point_collection.dart';
@@ -18,11 +20,21 @@ class ClientNotifier extends StateNotifier<List<ClientPoint>> {
     state = await isar.clientPoints.where().findAll();
   }
 
-  /// Guarda um novo cliente e a sua encomenda padrão na base de dados Isar
+  /// Saves a new client and their default order to the Isar database
   Future<void> addClient(ClientPoint client) async {
     final isar = await isarService.db;
     await isar.writeTxn(() async {
       await isar.clientPoints.put(client);
+    });
+    await _loadClients();
+  }
+
+  /// Deletes a client from the Isar database
+  /// @param {int} id - The unique identifier of the client to delete
+  Future<void> deleteClient(int id) async {
+    final isar = await isarService.db;
+    await isar.writeTxn(() async {
+      await isar.clientPoints.delete(id);
     });
     await _loadClients();
   }

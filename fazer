@@ -6,10 +6,6 @@ Melhorar o design geral da aplicação, tornando a interface mais clara e intuit
 
 Problemas técnicos e de UX identificados:
 
-Funcionalidade de “Desfazer” inexistente:
-No ficheiro delivery_execution_screen.dart, o botão "Desfazer" presente na SnackBar não tem qualquer implementação (// Futura implementação de Undo). É necessário integrar chamadas aos Providers (State Management) para reverter o estado isDelivered para false.
-Ausência de Skeleton Screens:
-A aplicação não utiliza Skeleton Screens durante períodos de carregamento (ex: inicialização do GPS ou carregamento de listas), o que compromete a perceção de performance e não cumpre as boas práticas de UX definidas.
 Dados estáticos no resumo diário:
 O ficheiro daily_summary_screen.dart contém apenas a UI, com valores estáticos como "Entregas (124)", "A Receber (€ 85.50)" e a lista de stock (stockData).
 É necessário implementar lógica dinâmica que:

@@ -19,7 +19,6 @@ class RouteClientSelectionScreen extends ConsumerStatefulWidget {
 
 class _RouteClientSelectionScreenState extends ConsumerState<RouteClientSelectionScreen> {
   
-  /// Opens a BottomSheet to define exactly what this client will receive on this route day.
   void _showProductAllocationSheet(ClientPoint client) {
     showModalBottomSheet(
       context: context,
@@ -33,31 +32,40 @@ class _RouteClientSelectionScreenState extends ConsumerState<RouteClientSelectio
 
   @override
   Widget build(BuildContext context) {
-    final clients = ref.watch(clientListProvider);
+    // Todos os clientes da base de dados global
+    final allClients = ref.watch(clientListProvider);
+    // Paragens específicas apenas desta rota
+    final routeStops = ref.watch(routeStopsProvider(widget.route.id));
+    
+    // OTIMIZAÇÃO: Filtrar os clientes que JÁ ESTÃO na rota atual para evitar duplicações
+    final existingClientIds = routeStops.map((stop) => stop.clientPoint.value?.id).toSet();
+    final availableClients = allClients.where((c) => !existingClientIds.contains(c.id)).toList();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Selecionar Cliente'),
       ),
-      body: clients.isEmpty
+      body: allClients.isEmpty
           ? const Center(child: Text('Nenhum cliente registado no mapa ainda.'))
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: clients.length,
-              itemBuilder: (context, index) {
-                final client = clients[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    leading: const Icon(Icons.person_pin_circle_outlined),
-                    title: Text(client.clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(client.deliveryNotes ?? 'Sem notas de entrega'),
-                    trailing: const Icon(Icons.add_circle_outline, color: Color(0xFF64FFDA)),
-                    onTap: () => _showProductAllocationSheet(client),
-                  ),
-                );
-              },
-            ),
+          : availableClients.isEmpty 
+              ? const Center(child: Text('Todos os clientes já foram adicionados a esta rota.'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: availableClients.length,
+                  itemBuilder: (context, index) {
+                    final client = availableClients[index];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        leading: const Icon(Icons.person_pin_circle_outlined),
+                        title: Text(client.clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text(client.deliveryNotes ?? 'Sem notas de entrega'),
+                        trailing: Icon(Icons.add_circle_outline, color: Theme.of(context).colorScheme.primary),
+                        onTap: () => _showProductAllocationSheet(client),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
@@ -74,7 +82,6 @@ class _ProductAllocationSheet extends ConsumerStatefulWidget {
 }
 
 class _ProductAllocationSheetState extends ConsumerState<_ProductAllocationSheet> {
-  // Map to hold temporary quantities while the user adjusts them in the sheet (Key is Product ID)
   final Map<int, int> _selectedQuantities = {};
   final List<Product> _activeInSheet = [];
 
@@ -89,7 +96,6 @@ class _ProductAllocationSheetState extends ConsumerState<_ProductAllocationSheet
         final parts = item.split('x ');
         if (parts.length >= 2) {
           final qty = int.tryParse(parts[0]) ?? 0;
-          // Procuramos o produto para garantir a correspondência pelo ID
           final productNameWithCategory = parts[1].trim();
           final pureName = productNameWithCategory.split(' (')[0];
           
@@ -168,7 +174,7 @@ class _ProductAllocationSheetState extends ConsumerState<_ProductAllocationSheet
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.add_circle_outline, color: Color(0xFF64FFDA)),
+                              icon: Icon(Icons.add_circle_outline, color: theme.colorScheme.primary),
                               onPressed: () {
                                 setState(() {
                                   _selectedQuantities[product.id] = (_selectedQuantities[product.id] ?? 0) + 1;

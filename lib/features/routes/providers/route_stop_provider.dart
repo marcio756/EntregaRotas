@@ -1,5 +1,3 @@
-// Ficheiro: lib/features/routes/providers/route_stop_provider.dart
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../main.dart';
 import '../../../core/database/collections/route_stop_collection.dart';
@@ -21,18 +19,24 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
 
   Future<void> _loadStops() async {
     final isar = await isarService.db;
-    // Uses Isar's relational querying to find stops belonging to this specific route
-    final stops = await isar.routeStops
-        .filter()
-        .route((q) => q.idEqualTo(routeId))
-        .sortByStopOrder()
-        .findAll();
-        
-    // Load relational data (Client details) into memory for the UI
-    for (var stop in stops) {
-      await stop.clientPoint.load();
+    
+    // Abordagem à prova de falhas: Busca todas as paragens e filtra estritamente na memória.
+    // Isto contorna potenciais bugs do Isar ao usar filtros de links gerados automaticamente.
+    final allStops = await isar.routeStops.where().sortByStopOrder().findAll();
+    
+    final List<RouteStop> strictRouteStops = [];
+    
+    for (var stop in allStops) {
+      await stop.route.load(); // Carrega a referência da rota associada
+      
+      // Validação Estrita: Só entra na lista se o ID da Rota bater certo!
+      if (stop.route.value?.id == routeId) {
+        await stop.clientPoint.load(); // Carrega os detalhes do cliente
+        strictRouteStops.add(stop);
+      }
     }
-    state = stops;
+    
+    state = strictRouteStops;
   }
 
   /// Creates a relational link between a Route and a ClientPoint
@@ -40,14 +44,13 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     final isar = await isarService.db;
     
     final newStop = RouteStop()
-      ..stopOrder = state.length // Adds to the end of the list
+      ..stopOrder = state.length
       ..productsToDeliver = products
       ..isDelivered = false;
 
     await isar.writeTxn(() async {
       await isar.routeStops.put(newStop);
       
-      // Save relational links
       newStop.route.value = route;
       newStop.clientPoint.value = client;
       
@@ -59,10 +62,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
   }
 
   /// Toggles the delivery status of a specific stop and persists it to the local database.
-  /// Used for marking a delivery as complete or performing an 'Undo' action.
-  /// 
-  /// @param {int} stopId - The unique identifier of the route stop.
-  /// @param {bool} status - The new delivery status to apply (true for delivered, false for undo).
   Future<void> toggleDeliveryStatus(int stopId, bool status) async {
     final isar = await isarService.db;
     final stop = await isar.routeStops.get(stopId);
@@ -72,7 +71,7 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
       await isar.writeTxn(() async {
         await isar.routeStops.put(stop);
       });
-      await _loadStops(); // Triggers a state update for the UI to reflect changes
+      await _loadStops(); 
     }
   }
 }

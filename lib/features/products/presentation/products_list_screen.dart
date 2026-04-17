@@ -72,6 +72,7 @@ class ProductsListScreen extends ConsumerWidget {
               },
             ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'products_fab_unique_tag', // Correção adicionada aqui
         onPressed: () {
           Navigator.of(context).push(
             MaterialPageRoute(builder: (context) => const ProductFormScreen()),

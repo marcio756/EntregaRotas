@@ -58,20 +58,17 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   }
 
   void _handleDeliveryComplete(int stopId, String clientName) {
-    // 1. Persists the completion state to the database via Provider
     ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, true);
 
-    // 2. Shows the feedback with the integrated Undo functionality
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('$clientName entregue.'),
+        content: Text('$clientName entregue com sucesso.'),
         duration: const Duration(seconds: 5),
         action: SnackBarAction(
           label: 'DESFAZER',
           textColor: Theme.of(context).colorScheme.primary,
           onPressed: () {
-            // Reverts the delivery state in the database
             ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, false);
           },
         ),
@@ -85,15 +82,18 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     final stops = ref.watch(routeStopsProvider(widget.activeRoute.id));
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
 
-    // Motor de Cálculo: Somatório do stock necessário para a rota atual
-    Map<String, int> productTotals = {};
-    for (var stop in pendingStops) {
+    // Motor de Cálculo Otimizado: Avalia APENAS os próximos 5 clientes para aliviar 
+    // a carga cognitiva do distribuidor.
+    Map<String, int> nextFiveTotals = {};
+    final nextFiveStops = pendingStops.take(5);
+    
+    for (var stop in nextFiveStops) {
       for (var item in stop.productsToDeliver) {
         final parts = item.split('x ');
         if (parts.length == 2) {
           final qty = int.tryParse(parts[0]) ?? 0;
           final name = parts[1].trim();
-          productTotals[name] = (productTotals[name] ?? 0) + qty;
+          nextFiveTotals[name] = (nextFiveTotals[name] ?? 0) + qty;
         }
       }
     }
@@ -112,7 +112,6 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
             icon: const Icon(Icons.map_outlined),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
-                // Injetamos a Rota Ativa no Mapa
                 builder: (context) => DeliveryMapScreen(activeRoute: widget.activeRoute),
               ),
             ),
@@ -121,42 +120,49 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
       ),
       body: Column(
         children: [
-          // Banner de Stock Necessário
-          if (productTotals.isNotEmpty)
+          // Banner de Stock Necessário Revisto
+          if (nextFiveTotals.isNotEmpty)
             Container(
               width: double.infinity,
-              color: theme.colorScheme.surface,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              color: theme.colorScheme.surfaceContainerHighest,
+              padding: const EdgeInsets.symmetric(vertical: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Text('Carga Necessária para Terminar:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Row(
+                      children: [
+                        Icon(Icons.inventory_2_outlined, size: 18, color: theme.colorScheme.primary),
+                        const SizedBox(width: 8),
+                        Text('Carga Necessária (Próximos ${nextFiveStops.length} Clientes):', 
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   SizedBox(
-                    height: 40,
+                    height: 44,
                     child: ListView.separated(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       scrollDirection: Axis.horizontal,
-                      itemCount: productTotals.keys.length,
+                      itemCount: nextFiveTotals.keys.length,
                       separatorBuilder: (context, index) => const SizedBox(width: 8),
                       itemBuilder: (context, index) {
-                        String productName = productTotals.keys.elementAt(index);
-                        int totalQty = productTotals[productName]!;
+                        String productName = nextFiveTotals.keys.elementAt(index);
+                        int totalQty = nextFiveTotals[productName]!;
                         return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
+                            color: theme.colorScheme.surface,
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.5)),
                           ),
                           child: Row(
                             children: [
-                              Text('$totalQty', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 16)),
-                              const SizedBox(width: 6),
-                              Text(productName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              Text('$totalQty', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 18)),
+                              const SizedBox(width: 8),
+                              Text(productName, style: const TextStyle(fontWeight: FontWeight.w600)),
                             ],
                           ),
                         );
@@ -167,14 +173,13 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
               ),
             ),
             
-          const Divider(height: 1, color: Color(0xFF333333)),
+          const Divider(height: 1, thickness: 1, color: Color(0xFF2C2C2C)),
 
-          // Lista de Entregas
           Expanded(
             child: _isLocating 
               ? ListView.builder(
                   padding: const EdgeInsets.only(top: 16),
-                  itemCount: 4, // Skeleton Illusions
+                  itemCount: 4,
                   itemBuilder: (context, index) => const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                     child: SkeletonLoader(height: 140),
@@ -185,19 +190,30 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text('Todas as entregas concluídas!').animate().fadeIn().scale(),
-                        const SizedBox(height: 24),
-                        ElevatedButton(
-                          onPressed: () => Navigator.of(context).pushReplacement(
-                            MaterialPageRoute(builder: (context) => const DailySummaryScreen()),
+                        Icon(Icons.check_circle_outline, size: 80, color: theme.colorScheme.secondary)
+                          .animate().scale().fadeIn(),
+                        const SizedBox(height: 16),
+                        const Text('Todas as entregas concluídas!').animate().fadeIn().slideY(),
+                        const SizedBox(height: 32),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: theme.colorScheme.primary,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                           ),
-                          child: const Text('VER RESUMO DO DIA', style: TextStyle(fontWeight: FontWeight.bold)),
+                          onPressed: () => Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(
+                              builder: (context) => DailySummaryScreen(activeRoute: widget.activeRoute),
+                            ),
+                          ),
+                          icon: const Icon(Icons.bar_chart),
+                          label: const Text('VER RESUMO DO DIA', style: TextStyle(fontWeight: FontWeight.bold)),
                         )
                       ],
                     ),
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.only(top: 12),
                     itemCount: pendingStops.length,
                     itemBuilder: (context, index) {
                       final stop = pendingStops[index];
