@@ -1,3 +1,5 @@
+// Ficheiro: lib/features/delivery/presentation/delivery_execution_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -7,6 +9,7 @@ import 'widgets/delivery_card.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'daily_summary_screen.dart';
 import 'delivery_map_screen.dart';
+import '../../../core/presentation/widgets/skeleton_loader.dart';
 
 class DeliveryExecutionScreen extends ConsumerStatefulWidget {
   final DeliveryRoute activeRoute;
@@ -19,6 +22,7 @@ class DeliveryExecutionScreen extends ConsumerStatefulWidget {
 
 class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScreen> {
   Position? _currentLocation;
+  bool _isLocating = true;
 
   @override
   void initState() {
@@ -28,19 +32,36 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
 
   Future<void> _startLocationTracking() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    if (!serviceEnabled) {
+      if (mounted) setState(() => _isLocating = false);
+      return;
+    }
 
     LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return;
+    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      if (mounted) setState(() => _isLocating = false);
+      return;
+    }
 
     Geolocator.getPositionStream(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
     ).listen((Position position) {
-      if (mounted) setState(() => _currentLocation = position);
+      if (mounted) {
+        setState(() {
+          _currentLocation = position;
+          _isLocating = false;
+        });
+      }
+    }).onError((error) {
+      if (mounted) setState(() => _isLocating = false);
     });
   }
 
   void _handleDeliveryComplete(int stopId, String clientName) {
+    // 1. Persists the completion state to the database via Provider
+    ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, true);
+
+    // 2. Shows the feedback with the integrated Undo functionality
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -50,7 +71,8 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
           label: 'DESFAZER',
           textColor: Theme.of(context).colorScheme.primary,
           onPressed: () {
-            // Futura implementação de Undo
+            // Reverts the delivery state in the database
+            ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, false);
           },
         ),
       ),
@@ -149,7 +171,16 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
 
           // Lista de Entregas
           Expanded(
-            child: pendingStops.isEmpty
+            child: _isLocating 
+              ? ListView.builder(
+                  padding: const EdgeInsets.only(top: 16),
+                  itemCount: 4, // Skeleton Illusions
+                  itemBuilder: (context, index) => const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: SkeletonLoader(height: 140),
+                  ),
+                )
+              : pendingStops.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,

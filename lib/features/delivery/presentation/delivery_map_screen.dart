@@ -1,3 +1,5 @@
+// Ficheiro: lib/features/delivery/presentation/delivery_map_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -6,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/collections/route_collection.dart';
 import '../../routes/providers/route_stop_provider.dart';
 import '../../clients/presentation/add_client_point_screen.dart';
+import '../../../core/presentation/widgets/skeleton_loader.dart';
 
 class DeliveryMapScreen extends ConsumerStatefulWidget {
   final DeliveryRoute activeRoute;
@@ -30,12 +33,18 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
   Future<void> _centerOnUserLocation() async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
+      if (!serviceEnabled) {
+        if (mounted) setState(() => _isLoadingLocation = false);
+        return;
+      }
 
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) return;
+        if (permission == LocationPermission.denied) {
+          if (mounted) setState(() => _isLoadingLocation = false);
+          return;
+        }
       }
 
       final position = await Geolocator.getCurrentPosition(
@@ -120,8 +129,11 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
               ),
             ],
           ),
+          
+          // Applying Skeleton Screen over the map to simulate loading environment smoothly
           if (_isLoadingLocation)
-            const Center(child: CircularProgressIndicator()),
+            const SkeletonLoader(height: double.infinity, borderRadius: 0),
+            
           Positioned(
             bottom: 32,
             right: 24,

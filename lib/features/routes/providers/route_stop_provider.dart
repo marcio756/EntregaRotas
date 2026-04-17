@@ -1,3 +1,5 @@
+// Ficheiro: lib/features/routes/providers/route_stop_provider.dart
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../main.dart';
 import '../../../core/database/collections/route_stop_collection.dart';
@@ -54,5 +56,23 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     });
     
     await _loadStops();
+  }
+
+  /// Toggles the delivery status of a specific stop and persists it to the local database.
+  /// Used for marking a delivery as complete or performing an 'Undo' action.
+  /// 
+  /// @param {int} stopId - The unique identifier of the route stop.
+  /// @param {bool} status - The new delivery status to apply (true for delivered, false for undo).
+  Future<void> toggleDeliveryStatus(int stopId, bool status) async {
+    final isar = await isarService.db;
+    final stop = await isar.routeStops.get(stopId);
+    
+    if (stop != null) {
+      stop.isDelivered = status;
+      await isar.writeTxn(() async {
+        await isar.routeStops.put(stop);
+      });
+      await _loadStops(); // Triggers a state update for the UI to reflect changes
+    }
   }
 }
