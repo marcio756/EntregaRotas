@@ -57,13 +57,13 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     });
   }
 
-  void _handleDeliveryComplete(int stopId, String clientName) {
+  void _handleDeliveryComplete(int stopId, String orderName) {
     ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, true);
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('$clientName entregue com sucesso.'),
+        content: Text('$orderName entregue com sucesso.'),
         duration: const Duration(seconds: 5),
         action: SnackBarAction(
           label: 'DESFAZER',
@@ -82,18 +82,14 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     final stops = ref.watch(routeStopsProvider(widget.activeRoute.id));
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
 
-    // Motor de Cálculo Otimizado: Avalia APENAS os próximos 5 clientes para aliviar 
-    // a carga cognitiva do distribuidor.
-    Map<String, int> nextFiveTotals = {};
-    final nextFiveStops = pendingStops.take(5);
-    
-    for (var stop in nextFiveStops) {
+    Map<String, int> totalLoadByProduct = {};
+    for (var stop in stops) {
       for (var item in stop.productsToDeliver) {
         final parts = item.split('x ');
         if (parts.length == 2) {
           final qty = int.tryParse(parts[0]) ?? 0;
           final name = parts[1].trim();
-          nextFiveTotals[name] = (nextFiveTotals[name] ?? 0) + qty;
+          totalLoadByProduct[name] = (totalLoadByProduct[name] ?? 0) + qty;
         }
       }
     }
@@ -120,8 +116,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
       ),
       body: Column(
         children: [
-          // Banner de Stock Necessário Revisto
-          if (nextFiveTotals.isNotEmpty)
+          if (totalLoadByProduct.isNotEmpty)
             Container(
               width: double.infinity,
               color: theme.colorScheme.surfaceContainerHighest,
@@ -135,7 +130,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
                       children: [
                         Icon(Icons.inventory_2_outlined, size: 18, color: theme.colorScheme.primary),
                         const SizedBox(width: 8),
-                        Text('Carga Necessária (Próximos ${nextFiveStops.length} Clientes):', 
+                        Text('Carga Total da Rota (${stops.length} pedidos):', 
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                       ],
                     ),
@@ -146,11 +141,11 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
                     child: ListView.separated(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       scrollDirection: Axis.horizontal,
-                      itemCount: nextFiveTotals.keys.length,
+                      itemCount: totalLoadByProduct.keys.length,
                       separatorBuilder: (context, index) => const SizedBox(width: 8),
                       itemBuilder: (context, index) {
-                        String productName = nextFiveTotals.keys.elementAt(index);
-                        int totalQty = nextFiveTotals[productName]!;
+                        String productName = totalLoadByProduct.keys.elementAt(index);
+                        int totalQty = totalLoadByProduct[productName]!;
                         return Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(
@@ -217,24 +212,23 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
                     itemCount: pendingStops.length,
                     itemBuilder: (context, index) {
                       final stop = pendingStops[index];
-                      final client = stop.clientPoint.value;
-                      if (client == null) return const SizedBox.shrink();
 
                       bool isNear = false;
                       if (_currentLocation != null) {
+                        // Calcula a distância diretamente com os dados embutidos na paragem
                         final distance = Geolocator.distanceBetween(
                           _currentLocation!.latitude, _currentLocation!.longitude,
-                          client.latitude, client.longitude,
+                          stop.latitude, stop.longitude,
                         );
                         isNear = distance <= 30.0;
                       }
 
                       return DeliveryCard(
-                        clientName: client.clientName,
-                        address: client.deliveryNotes ?? 'Sem notas de entrega',
+                        clientName: stop.orderName,
+                        address: stop.notes ?? 'Sem notas adicionais',
                         productsSummary: stop.productsToDeliver.join(', '),
                         isNear: isNear,
-                        onDelivered: () => _handleDeliveryComplete(stop.id, client.clientName),
+                        onDelivered: () => _handleDeliveryComplete(stop.id, stop.orderName),
                       );
                     },
                   ),

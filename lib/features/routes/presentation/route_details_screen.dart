@@ -1,66 +1,139 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/collections/route_collection.dart';
+import '../../../core/database/collections/route_stop_collection.dart';
 import '../providers/route_stop_provider.dart';
-import 'route_client_selection_screen.dart'; // Importação adicionada
+import 'add_order_screen.dart'; 
+import 'package:flutter_animate/flutter_animate.dart';
 
-/// Displays the physical stops allocated to a specific Delivery Route.
+/// Displays and manages the specific orders (stops) allocated to a Delivery Route.
 class RouteDetailsScreen extends ConsumerWidget {
   final DeliveryRoute route;
 
   const RouteDetailsScreen({super.key, required this.route});
 
+  void _confirmDelete(BuildContext context, WidgetRef ref, RouteStop stop) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Apagar Pedido?'),
+        content: Text('Tem a certeza que deseja remover o pedido "${stop.orderName}" desta rota?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCELAR', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            onPressed: () {
+              ref.read(routeStopsProvider(route.id).notifier).deleteOrder(stop.id);
+              Navigator.pop(context);
+            },
+            child: const Text('APAGAR', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Escuta apenas as paragens desta rota específica
     final stops = ref.watch(routeStopsProvider(route.id));
     final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(route.name),
+        title: Text('Gerir: ${route.name}'),
       ),
       body: stops.isEmpty
           ? Center(
               child: Text(
-                'Ainda não adicionaste clientes a esta rota.',
+                'Ainda não existem pedidos nesta rota.',
                 style: TextStyle(color: Colors.grey.shade600),
-              ),
+              ).animate().fadeIn().scale(),
             )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
+          : ReorderableListView.builder(
+              padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 80),
               itemCount: stops.length,
+              buildDefaultDragHandles: false,
+              onReorder: (oldIndex, newIndex) {
+                if (oldIndex < newIndex) {
+                  newIndex -= 1;
+                }
+                final List<RouteStop> reorderedStops = List.from(stops);
+                final item = reorderedStops.removeAt(oldIndex);
+                reorderedStops.insert(newIndex, item);
+                
+                ref.read(routeStopsProvider(route.id).notifier).updateStopsOrder(reorderedStops);
+              },
               itemBuilder: (context, index) {
                 final stop = stops[index];
-                final client = stop.clientPoint.value; // Relational data
 
-                if (client == null) return const SizedBox.shrink();
-
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.2),
-                      child: Text('${index + 1}', style: TextStyle(color: theme.colorScheme.primary)),
+                return Dismissible(
+                  key: ValueKey(stop.id),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.error,
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    title: Text(client.clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(stop.productsToDeliver.join(', ')),
-                    trailing: const Icon(Icons.drag_handle, color: Colors.grey),
+                    child: const Icon(Icons.delete_sweep, color: Colors.white, size: 32),
+                  ),
+                  confirmDismiss: (direction) async {
+                    _confirmDelete(context, ref, stop);
+                    return false; 
+                  },
+                  child: Card(
+                    key: ValueKey('card_${stop.id}'),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      leading: CircleAvatar(
+                        backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.2),
+                        child: Text('${index + 1}', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
+                      ),
+                      title: Text(stop.orderName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(
+                        stop.productsToDeliver.join(', '), 
+                        maxLines: 1, 
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      // Tapping the card opens the AddOrderScreen in Edit Mode with a premium drill-down feel
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => AddOrderScreen(
+                              activeRoute: route,
+                              orderToEdit: stop,
+                            ),
+                          ),
+                        );
+                      },
+                      trailing: ReorderableDragStartListener(
+                        index: index,
+                        child: const Padding(
+                          padding: EdgeInsets.only(left: 16.0),
+                          child: Icon(Icons.drag_indicator, color: Colors.grey, size: 32),
+                        ),
+                      ),
+                    ),
                   ),
                 );
               },
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
-          // Navegação com UI Transition para o ecrã de seleção de clientes
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (context) => RouteClientSelectionScreen(route: route),
+              builder: (context) => AddOrderScreen(activeRoute: route),
             ),
           );
         },
         icon: const Icon(Icons.add),
-        label: const Text('ADICIONAR CLIENTE'),
+        label: const Text('NOVO PEDIDO', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
     );
   }

@@ -1,10 +1,7 @@
-// Ficheiro: lib/core/presentation/main_shell_screen.dart
-
 import 'package:flutter/material.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/products/presentation/products_list_screen.dart';
 import '../../features/routes/presentation/routes_management_screen.dart';
-import '../../features/clients/presentation/clients_list_screen.dart';
 
 class MainShellScreen extends StatefulWidget {
   const MainShellScreen({super.key});
@@ -19,8 +16,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
   final List<Widget> _screens = [
     const HomeScreen(),
     const RoutesManagementScreen(),
-    const ClientsListScreen(),
-    const ProductsListScreen(),
+    const ProductsListScreen(), // Substituiu a posição dos clientes
   ];
 
   @override
@@ -33,7 +29,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Início'),
           NavigationDestination(icon: Icon(Icons.route_outlined), label: 'Rotas'),
-          NavigationDestination(icon: Icon(Icons.people_outline), label: 'Clientes'),
           NavigationDestination(icon: Icon(Icons.bakery_dining_outlined), label: 'Produtos'),
         ],
       ),

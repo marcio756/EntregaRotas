@@ -1,7 +1,6 @@
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'collections/product_collection.dart';
-import 'collections/client_point_collection.dart';
 import 'collections/route_collection.dart';
 import 'collections/route_stop_collection.dart';
 
@@ -21,9 +20,8 @@ class IsarService {
       return await Isar.open(
         [
           ProductSchema, 
-          ClientPointSchema,
           DeliveryRouteSchema,
-          RouteStopSchema
+          RouteStopSchema // Agora o RouteStop contém tudo (Pedidos)
         ],
         directory: dir.path,
         inspector: true, // Enables Isar Inspector for debugging in browser

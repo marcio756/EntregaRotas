@@ -1,29 +1,40 @@
 import 'package:isar/isar.dart';
-import 'client_point_collection.dart';
 import 'route_collection.dart';
 
 part 'route_stop_collection.g.dart';
 
-/// Represents a specific stop in a route.
-/// Architecturally satisfies the requirement: "The same client point can be 
-/// allocated to multiple days with different quantities or products".
+/// Representa um Pedido específico dentro de uma Rota.
+/// Fundimos a localização, imagem e produtos numa única entidade 
+/// para simplificar a arquitetura de uso único (Domingos).
 @collection
 class RouteStop {
   Id id = Isar.autoIncrement;
 
-  /// Relational link to the specific Route (e.g., Monday)
+  /// Ligação à Rota a que este pedido pertence (ex: Domingo)
   final route = IsarLink<DeliveryRoute>();
 
-  /// Relational link to the physical Client Point (GPS and Address)
-  final clientPoint = IsarLink<ClientPoint>();
+  /// Nome ou identificador rápido do pedido (ex: "Casa Amarela", "Sr. João")
+  late String orderName;
 
-  /// Display order in the route (manual sorting or proximity based)
+  /// Descrição ou notas de entrega
+  String? notes;
+
+  /// Coordenadas exatas do pedido
+  late double latitude;
+  late double longitude;
+  
+  /// Como foi obtida a localização ('GPS' ou 'MAP')
+  String? locationCaptureMethod;
+
+  /// Caminho para a fotografia tirada ao local guardada no dispositivo
+  String? localImagePath;
+
+  /// Ordem de entrega na rota
   late int stopOrder;
 
-  /// Summary of products and quantities for this specific day/stop.
-  /// (e.g., ["2x Pão de Forma", "10x Carcaça"]).
+  /// Resumo dos produtos e quantidades para este pedido
   late List<String> productsToDeliver;
   
-  /// Marks if the delivery was completed in the current run.
+  /// Estado da entrega
   bool isDelivered = false;
 }
