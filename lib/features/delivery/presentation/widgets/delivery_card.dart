@@ -1,15 +1,15 @@
 // Ficheiro: lib/features/delivery/presentation/widgets/delivery_card.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 /// Represents a single delivery stop in the route execution list.
-/// Encapsulates the explicit actions, interactive product quantity adjustments,
-/// and Geofencing highlight logic to maintain Single Responsibility.
 class DeliveryCard extends StatelessWidget {
   final String clientName;
   final String address;
   final List<String> products;
-  final bool isNear; // Triggered by Geofencing
+  final bool isNear; 
+  final String? imagePath; 
   final VoidCallback onDelivered;
   final Function(int productIndex, bool isIncrement) onQuantityAdjust;
 
@@ -19,9 +19,34 @@ class DeliveryCard extends StatelessWidget {
     required this.address,
     required this.products,
     required this.isNear,
+    this.imagePath,
     required this.onDelivered,
     required this.onQuantityAdjust,
   });
+
+  // Mostra a foto em ecrã inteiro sem sair da navegação do mapa
+  void _showQuickImagePreview(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            alignment: Alignment.topRight,
+            children: [
+              Image.file(File(imagePath!), fit: BoxFit.contain),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, shadows: [Shadow(blurRadius: 10, color: Colors.black)]),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        ).animate().scale(duration: 200.ms, curve: Curves.easeOutBack),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +56,6 @@ class DeliveryCard extends StatelessWidget {
       key: Key(clientName),
       direction: DismissDirection.startToEnd,
       onDismissed: (direction) {
-        // Optimistic UI callback triggered instantly on swipe completion.
         onDelivered();
       },
       background: Container(
@@ -46,51 +70,80 @@ class DeliveryCard extends StatelessWidget {
       child: Card(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          // Highlights the card if the user is within the geofence boundary.
           side: isNear 
               ? BorderSide(color: theme.colorScheme.primary, width: 2)
               : const BorderSide(color: Color(0xFF333333), width: 1),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(20.0), // Large touch targets
+          padding: const EdgeInsets.all(20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (imagePath != null)
+                    GestureDetector(
+                      onTap: () => _showQuickImagePreview(context),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 16),
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          image: DecorationImage(
+                            image: FileImage(File(imagePath!)),
+                            fit: BoxFit.cover,
+                          ),
+                          border: Border.all(color: const Color(0xFF333333)),
+                        ),
+                        child: const Align(
+                          alignment: Alignment.bottomRight,
+                          child: Icon(Icons.zoom_in, size: 18, color: Colors.white54),
+                        ),
+                      ),
+                    ),
                   Expanded(
-                    child: Text(
-                      clientName,
-                      style: theme.textTheme.titleLarge,
-                      overflow: TextOverflow.ellipsis,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                clientName,
+                                style: theme.textTheme.titleLarge,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (isNear)
+                              const Icon(Icons.location_on, color: Color(0xFF64FFDA))
+                                  .animate(onPlay: (controller) => controller.repeat())
+                                  .shimmer(duration: 1500.ms),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          address,
+                          style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                        ),
+                      ],
                     ),
                   ),
-                  if (isNear)
-                    const Icon(Icons.location_on, color: Color(0xFF64FFDA))
-                        .animate(onPlay: (controller) => controller.repeat())
-                        .shimmer(duration: 1500.ms),
                 ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                address,
-                style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey),
               ),
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12.0),
                 child: Divider(color: Color(0xFF333333)),
               ),
               
-              // Interactive product list panel with quick +/- buttons
               ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: products.length,
                 itemBuilder: (context, idx) {
                   final itemStr = products[idx];
-                  
-                  // Extract display representation
                   final displayStr = itemStr.split(' | orig: ')[0];
                   final lineParts = displayStr.split('x ');
                   final qty = lineParts[0];
@@ -142,7 +195,6 @@ class DeliveryCard extends StatelessWidget {
               ),
               
               const SizedBox(height: 16),
-              // Explicit action button providing an alternative approach to the gesture swipe.
               SizedBox(
                 width: double.infinity,
                 height: 44,
@@ -160,7 +212,7 @@ class DeliveryCard extends StatelessWidget {
             ],
           ),
         ),
-      ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.1, end: 0), // Context Transition
+      ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.1, end: 0),
     );
   }
 }

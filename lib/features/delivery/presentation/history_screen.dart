@@ -32,9 +32,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   void _viewDayDetails(Map<String, dynamic> log) {
     final theme = Theme.of(context);
-    final delivered = Map<String, int>.from(log['delivered'] as Map);
-    final notDelivered = Map<String, int>.from(log['notDelivered'] as Map);
-    final extra = Map<String, int>.from(log['extra'] as Map);
+    final delivered = Map<String, int>.from(log['delivered'] ?? {});
+    final notDelivered = Map<String, int>.from(log['notDelivered'] ?? {});
+    final extra = Map<String, int>.from(log['extra'] ?? {});
+
+    final List<dynamic>? routesList = log['routeNames'] as List<dynamic>?;
+    final String displayRoutes = routesList != null 
+        ? routesList.map((e) => e.toString()).join(' + ') 
+        : (log['routeName'] as String? ?? 'Rotas Múltiplas');
 
     showModalBottomSheet(
       context: context,
@@ -65,9 +70,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(log['date'] as String, style: theme.textTheme.titleLarge?.copyWith(fontSize: 26)),
-                      Chip(
-                        backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.2),
-                        label: Text(log['routeName'] as String, style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
+                      Flexible(
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: Chip(
+                            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.2),
+                            label: Text(
+                              displayRoutes, 
+                              style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -139,6 +153,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   itemCount: _historyLogs.length,
                   itemBuilder: (context, idx) {
                     final log = _historyLogs[idx];
+                    
+                    final List<dynamic>? routesList = log['routeNames'] as List<dynamic>?;
+                    final String displayRoutes = routesList != null 
+                        ? routesList.map((e) => e.toString()).join(' + ') 
+                        : (log['routeName'] as String? ?? 'Desconhecida');
+
                     return Card(
                       margin: const EdgeInsets.only(bottom: 12),
                       child: ListTile(
@@ -147,7 +167,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           child: Icon(Icons.calendar_today_outlined, color: theme.colorScheme.primary, size: 20),
                         ),
                         title: Text(log['date'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                        subtitle: Text(log['routeName'] as String, style: const TextStyle(color: Colors.grey)),
+                        subtitle: Text(displayRoutes, style: const TextStyle(color: Colors.grey)),
                         trailing: const Icon(Icons.chevron_right, color: Colors.grey),
                         onTap: () => _viewDayDetails(log),
                       ),

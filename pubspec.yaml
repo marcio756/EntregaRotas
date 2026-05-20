@@ -26,6 +26,10 @@ dependencies:
   screenshot: ^3.0.0
   flutter_google_street_view: ^3.1.4
   flutter_map_marker_cluster: ^8.2.2
+  wakelock_plus: ^1.5.2
+  url_launcher: ^6.3.2
+  archive: ^4.0.9
+  file_picker: ^11.0.2
 
 dev_dependencies:
   flutter_test:

@@ -40,10 +40,28 @@ class RouteBottomSheet extends StatelessWidget {
     return totals;
   }
 
+  /// Calculates the absolute mathematical sum of all physical product units 
+  /// that are still pending to be delivered across all remaining stops.
+  int _calculateTotalItemsCount() {
+    int totalUnitCount = 0;
+    for (var stop in pendingStops) {
+      for (var productStr in stop.productsToDeliver) {
+        final displayStr = productStr.split(' | orig: ')[0];
+        final parts = displayStr.split('x ');
+        if (parts.length == 2) {
+          final qty = int.tryParse(parts[0]) ?? 0;
+          totalUnitCount += qty;
+        }
+      }
+    }
+    return totalUnitCount;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final remainingProducts = _calculateRemainingTotals();
+    final totalItemsPending = _calculateTotalItemsCount();
     
     return DraggableScrollableSheet(
       initialChildSize: 0.25,
@@ -76,12 +94,34 @@ class RouteBottomSheet extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Icon(Icons.format_list_bulleted, color: theme.colorScheme.primary),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Próximas Entregas (${pendingStops.length})', 
-                        style: theme.textTheme.titleLarge
+                      Row(
+                        children: [
+                          Icon(Icons.format_list_bulleted, color: theme.colorScheme.primary),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Próximas Entregas (${pendingStops.length})', 
+                            style: theme.textTheme.titleLarge
+                          ),
+                        ],
+                      ),
+                      // Premium counter badge to display the aggregate sum of all bread units left
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
+                        ),
+                        child: Text(
+                          '$totalItemsPending un.',
+                          style: TextStyle(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -151,13 +191,16 @@ class RouteBottomSheet extends StatelessWidget {
                           address: stop.notes ?? 'Sem notas',
                           products: stop.productsToDeliver,
                           isNear: isNear,
+                          imagePath: stop.localImagePath,
                           onDelivered: () => onDeliveryComplete(stop.id, stop.orderName),
                           onQuantityAdjust: (prodIdx, isInc) => onProductQuantityAdjust(stop.id, prodIdx, isInc),
                         ),
                       ),
                     );
                   },
-                  childCount: pendingStops.length > 5 ? 5 : pendingStops.length,
+                  // ARCHITECTURE CORRECTION: Removed artificial maximum list constraint of 5 items.
+                  // For a real-world work delivery mapping tool, hiding upcoming elements diminishes planning visibility.
+                  childCount: pendingStops.length,
                 ),
               ),
             ],

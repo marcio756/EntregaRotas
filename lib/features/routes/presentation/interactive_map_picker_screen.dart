@@ -1,3 +1,4 @@
+// Ficheiro: lib/features/routes/presentation/interactive_map_picker_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -46,12 +47,26 @@ class _InteractiveMapPickerScreenState extends State<InteractiveMapPickerScreen>
       if (serviceEnabled) {
         LocationPermission permission = await Geolocator.checkPermission();
         if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
+          
+          // OTIMIZAÇÃO: Percepção de Velocidade.
+          // Busca a última coordenada conhecida (que é instantânea) para libertar a interface e remover o Skeleton Screen de imediato.
+          final lastPos = await Geolocator.getLastKnownPosition();
+          if (lastPos != null && mounted) {
+            setState(() {
+              _currentCenter = LatLng(lastPos.latitude, lastPos.longitude);
+              _isLoading = false;
+            });
+          }
+
+          // A operação bloqueante de alta precisão é agora feita de forma assíncrona,
+          // atualizando e movendo a câmara de forma fluida sem congelar o ecrã do utilizador.
           final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
           if (mounted) {
             setState(() {
               _currentCenter = LatLng(position.latitude, position.longitude);
               _isLoading = false;
             });
+            _mapController.move(_currentCenter, 19.0);
           }
           return;
         }

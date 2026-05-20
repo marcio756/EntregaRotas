@@ -3,11 +3,41 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../main.dart';
 import '../../../core/database/collections/route_stop_collection.dart';
 import '../../../core/database/collections/route_collection.dart';
+import '../../../core/utils/geo_utils.dart';
 import 'package:isar/isar.dart';
 
 /// Provider that fetches and manages orders (stops) for a specific route ID.
 final routeStopsProvider = StateNotifierProvider.family<RouteStopNotifier, List<RouteStop>, int>((ref, routeId) {
   return RouteStopNotifier(routeId);
+});
+
+/// Computes the aggregated sum of all products required for a specific delivery route.
+/// Ensures business logic (aggregation) is completely segregated from the UI layer.
+final routeLoadSummaryProvider = Provider.family<Map<String, int>, int>((ref, routeId) {
+  final stops = ref.watch(routeStopsProvider(routeId));
+  final Map<String, int> loadTotals = {};
+
+  for (var stop in stops) {
+    for (var productStr in stop.productsToDeliver) {
+      final parts = productStr.split('x ');
+      if (parts.length >= 2) {
+        final qty = int.tryParse(parts[0]) ?? 0;
+        final remainder = parts[1].trim();
+        
+        String pureProductInfo = remainder;
+        if (remainder.contains(' | orig: ')) {
+          pureProductInfo = remainder.split(' | orig: ')[0].trim();
+        }
+        
+        final pureName = pureProductInfo.split(' (')[0].trim();
+        
+        if (qty > 0) {
+          loadTotals[pureName] = (loadTotals[pureName] ?? 0) + qty;
+        }
+      }
+    }
+  }
+  return loadTotals;
 });
 
 class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
@@ -33,7 +63,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     state = strictRouteStops;
   }
 
-  /// Creates a self-contained Order (RouteStop) and links it to the Route
   Future<void> addOrderToRoute({
     required DeliveryRoute route,
     required String orderName,
@@ -66,9 +95,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     await _loadStops();
   }
 
-  /// Updates an existing Order (RouteStop) attributes in the local database.
-  /// 
-  /// @param {int} stopId - The unique Isar identifier of the order to edit.
   Future<void> updateOrderInRoute({
     required int stopId,
     required String orderName,
@@ -98,7 +124,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     }
   }
 
-  /// Toggles the delivery status of a specific order
   Future<void> toggleDeliveryStatus(int stopId, bool status) async {
     final isar = await isarService.db;
     final stop = await isar.routeStops.get(stopId);
@@ -106,16 +131,12 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     if (stop != null) {
       stop.isDelivered = status;
       await isar.writeTxn(() async {
-        await isar.writeTxn(() async {
-          await isar.routeStops.put(stop);
-        });
+        await isar.routeStops.put(stop);
       });
       await _loadStops(); 
     }
   }
 
-  /// Adjusts the quantity of a specific product line within a stop dynamically.
-  /// Supports our custom encoding format: "Qtdx Nome (Categoria) | orig: QtdOrig"
   Future<void> adjustProductQuantity(int stopId, int productIndex, bool isIncrement) async {
     final isar = await isarService.db;
     final stop = await isar.routeStops.get(stopId);
@@ -144,7 +165,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
           if (currentQty > 0) currentQty--;
         }
         
-        // Encode back with history tracking metadata inline to prevent breaking schema
         if (currentQty == originalQty) {
           updatedProducts[productIndex] = '${currentQty}x $pureProductInfo';
         } else {
@@ -160,7 +180,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     }
   }
 
-  /// Resets all stops within the active route after day completion.
   Future<void> resetRouteCompletion() async {
     final isar = await isarService.db;
     await isar.writeTxn(() async {
@@ -191,7 +210,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     await _loadStops();
   }
 
-  /// Removes an order completely from the route
   Future<void> deleteOrder(int stopId) async {
     final isar = await isarService.db;
     await isar.writeTxn(() async {
@@ -200,10 +218,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     await _loadStops();
   }
 
-  /// Restores a previously deleted Order (RouteStop).
-  /// Used exclusively for Optimistic UI rollbacks when the user undoes a deletion.
-  ///
-  /// @param {RouteStop} order - The exact order entity state to be safely restored into the database.
   Future<void> restoreOrder(RouteStop order) async {
     final isar = await isarService.db;
     await isar.writeTxn(() async {
@@ -213,7 +227,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     await _loadStops();
   }
 
-  /// Updates the sequence order of the stops (Drag and Drop)
   Future<void> updateStopsOrder(List<RouteStop> reorderedStops) async {
     final isar = await isarService.db;
     
@@ -222,6 +235,55 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     await isar.writeTxn(() async {
       for (int i = 0; i < reorderedStops.length; i++) {
         final stop = reorderedStops[i];
+        stop.stopOrder = i;
+        await isar.routeStops.put(stop);
+      }
+    });
+  }
+
+  /// Optimizes the remaining pending stops using a Greedy TSP algorithm (closest neighbor)
+  /// starting from the provided GPS location. Updates the sequence locally.
+  Future<void> optimizePendingStops(double currentLat, double currentLon) async {
+    final isar = await isarService.db;
+    
+    final pending = state.where((s) => !s.isDelivered).toList();
+    final delivered = state.where((s) => s.isDelivered).toList();
+    
+    if (pending.isEmpty) return;
+
+    List<RouteStop> optimizedPending = [];
+    double lastLat = currentLat;
+    double lastLon = currentLon;
+    List<RouteStop> unvisited = List.from(pending);
+
+    // Greedy sorting: always find the closest next point
+    while (unvisited.isNotEmpty) {
+      RouteStop? nearestStop;
+      double minDistance = double.infinity;
+
+      for (var stop in unvisited) {
+        final dist = GeoUtils.calculateDistance(lastLat, lastLon, stop.latitude, stop.longitude);
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestStop = stop;
+        }
+      }
+
+      if (nearestStop != null) {
+        optimizedPending.add(nearestStop);
+        unvisited.remove(nearestStop);
+        lastLat = nearestStop.latitude;
+        lastLon = nearestStop.longitude;
+      }
+    }
+
+    final newOrder = [...delivered, ...optimizedPending];
+    state = newOrder;
+
+    // Persist optimized order to Isar
+    await isar.writeTxn(() async {
+      for (int i = 0; i < newOrder.length; i++) {
+        final stop = newOrder[i];
         stop.stopOrder = i;
         await isar.routeStops.put(stop);
       }

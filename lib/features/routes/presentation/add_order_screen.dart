@@ -15,8 +15,6 @@ import '../providers/route_stop_provider.dart';
 import 'interactive_map_picker_screen.dart'; 
 import 'street_view_capture_screen.dart'; 
 
-/// A dual-purpose screen that handles both creating a brand new order
-/// or parsing and modifying an existing RouteStop object.
 class AddOrderScreen extends ConsumerStatefulWidget {
   final DeliveryRoute activeRoute;
   final RouteStop? orderToEdit;
@@ -47,9 +45,9 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
   void initState() {
     super.initState();
     _populateFieldsIfEditing();
+    _inheritLastLocationIfNew();
   }
 
-  /// Parses saved order data and fills the controllers if widget.orderToEdit is injected.
   void _populateFieldsIfEditing() {
     if (widget.orderToEdit != null) {
       _nameController.text = widget.orderToEdit!.orderName;
@@ -67,7 +65,6 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
         if (parts.length == 2) {
           final qty = int.tryParse(parts[0]) ?? 0;
           
-          // OTIMIZAÇÃO: Parsing reverso para ignorar a Categoria durante a reconstrução dos objetos
           final rawName = parts[1].trim();
           final pureName = rawName.split(' (')[0].trim();
           
@@ -85,6 +82,19 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
     }
   }
 
+  void _inheritLastLocationIfNew() {
+    if (widget.orderToEdit == null) {
+      final currentStops = ref.read(routeStopsProvider(widget.activeRoute.id));
+      if (currentStops.isNotEmpty) {
+        final lastStop = currentStops.last;
+        setState(() {
+          _capturedLocation = LatLng(lastStop.latitude, lastStop.longitude);
+          _captureMethod = 'HERDADO_DO_ULTIMO';
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -95,14 +105,25 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
   Future<void> _captureGPS() async {
     setState(() => _isLocating = true);
     try {
+      final lastPos = await Geolocator.getLastKnownPosition();
+      if (lastPos != null && mounted) {
+        setState(() {
+          _capturedLocation = LatLng(lastPos.latitude, lastPos.longitude);
+          _captureMethod = 'GPS_AUTO';
+          _isLocating = false; 
+        });
+      }
+      
       Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      setState(() {
-        _capturedLocation = LatLng(position.latitude, position.longitude);
-        _captureMethod = 'GPS_AUTO';
-        _isLocating = false;
-      });
+      if (mounted) {
+        setState(() {
+          _capturedLocation = LatLng(position.latitude, position.longitude);
+          _captureMethod = 'GPS_AUTO';
+          _isLocating = false;
+        });
+      }
     } catch (_) {
-      setState(() => _isLocating = false);
+      if (mounted) setState(() => _isLocating = false);
     }
   }
 
@@ -183,14 +204,20 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
       }
 
       String? finalImagePath = widget.orderToEdit?.localImagePath;
+      
+      // NOVA LÓGICA DE LIMPEZA DE STORAGE (Decomposição SRP)
       if (_capturedImage != null && (widget.orderToEdit == null || _capturedImage!.path != widget.orderToEdit!.localImagePath)) {
         finalImagePath = await _fileService.saveImageLocally(_capturedImage!, prefix: 'pedido');
+        
+        // Se já existia uma foto antiga atrelada a este pedido, apagamos a antiga fisicamente do telemóvel
+        if (widget.orderToEdit?.localImagePath != null) {
+          await _fileService.deleteImageLocally(widget.orderToEdit!.localImagePath!);
+        }
       }
 
       final List<String> productsSummary = [];
       for (var prod in _addedProducts) {
         final qty = _selectedQuantities[prod.id] ?? 0;
-        // OTIMIZAÇÃO: Injeta a Categoria diretamente na string que é exibida na App de Delivery e Cartões
         if (qty > 0) productsSummary.add('${qty}x ${prod.name} (${prod.category ?? 'Geral'})');
       }
 
@@ -224,16 +251,13 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
     }
   }
 
-  /// Implements Optimistic UI deletion pattern. Hides instantly and offers recovery context.
   void _deleteOrder() {
     final backupOrder = widget.orderToEdit!;
     final routeId = widget.activeRoute.id;
     
-    // Optimistically execute delete logic
     ref.read(routeStopsProvider(routeId).notifier).deleteOrder(backupOrder.id);
     Navigator.pop(context);
 
-    // Provide the safety net (Undo) via common utility
     UiUtils.showUndoToast(context, 'Pedido "${backupOrder.orderName}" apagado.', () {
       ref.read(routeStopsProvider(routeId).notifier).restoreOrder(backupOrder);
     });

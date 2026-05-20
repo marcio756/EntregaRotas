@@ -1,8 +1,13 @@
+// Ficheiro: lib/features/home/presentation/home_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../routes/providers/route_provider.dart';
 import '../../delivery/presentation/delivery_execution_screen.dart';
+import '../../routes/presentation/route_load_sheet_screen.dart'; // NOVA IMPORTAÇÃO
+import '../../../core/services/backup_service.dart'; 
 
 /// The primary landing page of the application.
 /// Focuses on the "Start Working" action to initiate a specific delivery route.
@@ -14,6 +19,17 @@ class HomeScreen extends ConsumerWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.cloud_sync_outlined),
+            tooltip: 'Gestão de Backups',
+            onPressed: () => _showBackupOptions(context),
+          ).animate().fadeIn(delay: 500.ms),
+        ],
+      ),
       body: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -51,9 +67,136 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  /// Opens a Bottom Sheet to select which Route is being executed today.
+  void _showBackupOptions(BuildContext context) {
+    final backupService = BackupService();
+    final theme = Theme.of(context);
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (bottomSheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Segurança e Backups', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 8),
+                const Text('Guarda ou recupera todo o teu trabalho.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                const SizedBox(height: 24),
+                ListTile(
+                  leading: CircleAvatar(backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.2), child: Icon(Icons.upload_file, color: theme.colorScheme.primary)),
+                  title: const Text('Exportar Backup', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Criar um ficheiro .zip (Rotas, Fotos e Histórico).'),
+                  onTap: () async {
+                    Navigator.pop(bottomSheetContext); 
+                    _showLoading(context, 'A criar backup íntegro...');
+                    
+                    final success = await backupService.exportBackup();
+                    
+                    if (context.mounted) {
+                      Navigator.pop(context); 
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(success ? 'Backup guardado com sucesso!' : 'Operação cancelada ou falhou.'),
+                          backgroundColor: success ? Colors.green : theme.colorScheme.error,
+                        ),
+                      );
+                    }
+                  },
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8.0),
+                  child: Divider(color: Color(0xFF333333)),
+                ),
+                ListTile(
+                  leading: CircleAvatar(backgroundColor: theme.colorScheme.secondary.withValues(alpha: 0.2), child: Icon(Icons.download_rounded, color: theme.colorScheme.secondary)),
+                  title: const Text('Importar Backup', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Recuperar dados a partir de um ficheiro .zip.'),
+                  onTap: () async {
+                    Navigator.pop(bottomSheetContext);
+                    
+                    showDialog(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Atenção: Substituir Dados?'),
+                        content: const Text('Ao importar, todos os dados atuais da aplicação serão apagados e substituídos pelos do ficheiro.\n\nQueres mesmo continuar?'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCELAR', style: TextStyle(color: Colors.grey))),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.error, foregroundColor: Colors.white),
+                            onPressed: () async {
+                              Navigator.pop(dialogContext);
+                              _showLoading(context, 'A extrair e restaurar ficheiros...');
+                              
+                              final success = await backupService.importBackup();
+                              
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                                
+                                if (success) {
+                                  showDialog(
+                                    context: context,
+                                    barrierDismissible: false,
+                                    builder: (_) => AlertDialog(
+                                      title: const Text('Restauro Concluído!'),
+                                      content: const Text('Os teus dados foram recuperados.\nA aplicação precisa de ser reiniciada agora para carregar a nova base de dados.\n\nPor favor, fecha a app e volta a abrir.'),
+                                      actions: [
+                                        ElevatedButton(
+                                          onPressed: () {
+                                            if (Platform.isAndroid) {
+                                              SystemNavigator.pop();
+                                            } else {
+                                              exit(0);
+                                            }
+                                          }, 
+                                          child: const Text('FECHAR APP')
+                                        )
+                                      ],
+                                    )
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: const Text('Importação cancelada ou falhou.'), backgroundColor: theme.colorScheme.error)
+                                  );
+                                }
+                              }
+                            },
+                            child: const Text('SIM, RESTAURAR'),
+                          ),
+                        ],
+                      )
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showLoading(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Row(
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(width: 20),
+            Expanded(child: Text(message)),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showRouteSelection(BuildContext context, WidgetRef ref) {
     final routes = ref.read(routeListProvider);
+    final theme = Theme.of(context);
 
     showModalBottomSheet(
       context: context,
@@ -66,30 +209,46 @@ class HomeScreen extends ConsumerWidget {
           );
         }
 
-        return Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Qual rota vais iniciar?', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 16),
-              ...routes.map((route) => Card(
-                child: ListTile(
-                  title: Text(route.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: const Icon(Icons.arrow_forward),
-                  onTap: () {
-                    Navigator.pop(context); // Fecha a sheet
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => DeliveryExecutionScreen(activeRoute: route),
-                      ),
-                    );
-                  },
-                ),
-              )),
-              const SizedBox(height: 24),
-            ],
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Qual rota vais iniciar?', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 16),
+                ...routes.map((route) => Card(
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    title: Text(route.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                    subtitle: const Text('Toque para iniciar navegação', style: TextStyle(color: Colors.grey)),
+                    trailing: IconButton(
+                      tooltip: 'Validar Carga Total',
+                      style: IconButton.styleFrom(backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1)),
+                      icon: Icon(Icons.inventory_2_outlined, color: theme.colorScheme.primary),
+                      onPressed: () {
+                        Navigator.pop(context); // Remove a BottomSheet
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => RouteLoadSheetScreen(activeRoute: route),
+                          ),
+                        );
+                      },
+                    ),
+                    onTap: () {
+                      Navigator.pop(context); // Remove a BottomSheet
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => DeliveryExecutionScreen(activeRoute: route),
+                        ),
+                      );
+                    },
+                  ),
+                )),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         );
       },

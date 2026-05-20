@@ -13,6 +13,7 @@ class HistoryService {
   }
 
   /// Appends a structured snapshot of a completed route day into the JSON database.
+  /// Intelligently groups multiple routes completed on the same date.
   Future<void> saveDaySummary({
     required String dateStr,
     required String routeName,
@@ -32,18 +33,52 @@ class HistoryService {
       }
     }
 
-    final newEntry = {
-      'date': dateStr,
-      'routeName': routeName,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'delivered': delivered,
-      'notDelivered': notDelivered,
-      'extra': extra,
-    };
+    int existingIndex = logs.indexWhere((entry) => entry['date'] == dateStr);
 
-    // Remove duplicates for the same day/route combination if re-saved
-    logs.removeWhere((entry) => entry['date'] == dateStr && entry['routeName'] == routeName);
-    logs.add(newEntry);
+    if (existingIndex >= 0) {
+      // OTIMIZAÇÃO: Fundir com o dia existente para agrupar tudo
+      final existingEntry = logs[existingIndex];
+      
+      List<String> routeNames = [];
+      if (existingEntry['routeNames'] != null) {
+        routeNames = List<String>.from(existingEntry['routeNames']);
+      } else if (existingEntry['routeName'] != null) {
+        // Migração suave de dados antigos
+        routeNames = [existingEntry['routeName'] as String];
+      }
+
+      if (!routeNames.contains(routeName)) {
+        routeNames.add(routeName);
+      }
+
+      // Função utilitária para somar as quantidades de dois Maps
+      Map<String, int> mergeMaps(Map<String, dynamic> map1, Map<String, int> map2) {
+        final result = Map<String, int>.from(map1);
+        map2.forEach((key, value) {
+          result[key] = (result[key] ?? 0) + value;
+        });
+        return result;
+      }
+
+      logs[existingIndex] = {
+        'date': dateStr,
+        'routeNames': routeNames,
+        'timestamp': existingEntry['timestamp'],
+        'delivered': mergeMaps(Map<String, dynamic>.from(existingEntry['delivered'] ?? {}), delivered),
+        'notDelivered': mergeMaps(Map<String, dynamic>.from(existingEntry['notDelivered'] ?? {}), notDelivered),
+        'extra': mergeMaps(Map<String, dynamic>.from(existingEntry['extra'] ?? {}), extra),
+      };
+    } else {
+      // Nova entrada para um dia novo
+      logs.add({
+        'date': dateStr,
+        'routeNames': [routeName],
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'delivered': delivered,
+        'notDelivered': notDelivered,
+        'extra': extra,
+      });
+    }
 
     await file.writeAsString(jsonEncode(logs));
   }

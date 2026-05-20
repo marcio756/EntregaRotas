@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../core/database/collections/route_collection.dart';
 import '../../../core/database/collections/route_stop_collection.dart';
 import '../../routes/providers/route_stop_provider.dart';
@@ -30,14 +31,19 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   Position? _currentLocation;
   bool _isLocating = true;
   final MapController _mapController = MapController();
-  
-  // To avoid spamming Auto-Delivery SnackBar when standing still near an order
   final Set<int> _ignoredGeofenceIds = {};
 
   @override
   void initState() {
     super.initState();
+    WakelockPlus.enable(); 
     _startLocationTracking();
+  }
+
+  @override
+  void dispose() {
+    WakelockPlus.disable(); 
+    super.dispose();
   }
 
   Future<void> _startLocationTracking() async {
@@ -56,7 +62,6 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
       }
     }
 
-    // OTIMIZAÇÃO: Transição imediata da UI sem tempos de bloqueio de GPS
     final lastPosition = await Geolocator.getLastKnownPosition();
     if (lastPosition != null && mounted) {
       setState(() {
@@ -66,14 +71,12 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
       _mapController.move(LatLng(lastPosition.latitude, lastPosition.longitude), 17.5);
     }
 
-    // PERFORMANCE OPTIMIZATION: Adjusted distanceFilter and accuracy constraints to shield map from sensor jitter.
     Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high, 
-        distanceFilter: 8, // Higher threshold avoids refreshing on micro-movements or stationary device drift
+        distanceFilter: 8,
       ),
     ).listen((Position position) {
-      // DRIFT FILTER: Discard low accuracy readings or static sensor noise to avoid phantom driving simulation.
       if (position.accuracy > 15.0) return;
 
       if (_currentLocation != null) {
@@ -81,7 +84,6 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
           _currentLocation!.latitude, _currentLocation!.longitude,
           position.latitude, position.longitude,
         );
-        // Ignore noise if the geographic displacement is insignificant (less than 4 meters real change)
         if (deltaDistance < 4.0) return;
       }
 
@@ -94,7 +96,6 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
           _isLocating = false;
         });
 
-        // Background evaluation of precise geofencing triggers
         _evaluateAutoDeliveryTrigger(position);
       }
     }).onError((error) {
@@ -102,7 +103,6 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     });
   }
 
-  /// Triggers Optimistic UI and Haptic Feedback when GPS detects proximity < 25m
   void _evaluateAutoDeliveryTrigger(Position position) {
     final stops = ref.read(routeStopsProvider(widget.activeRoute.id));
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
@@ -116,8 +116,8 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
       );
 
       if (distance <= 25.0) {
-        _ignoredGeofenceIds.add(stop.id); // Prevent loop re-evaluations during session
-        HapticFeedback.lightImpact(); // Subtle premium physical response
+        _ignoredGeofenceIds.add(stop.id);
+        HapticFeedback.lightImpact();
         
         ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stop.id, true);
         
@@ -129,7 +129,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
             ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stop.id, false);
           }
         );
-        break; // Only evaluate one per GPS tick to avoid overwhelming the user
+        break;
       }
     }
   }
@@ -230,6 +230,52 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
         title: Text(widget.activeRoute.name, style: const TextStyle(shadows: [Shadow(blurRadius: 10, color: Colors.black)])),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.auto_awesome, color: Colors.amber, shadows: [Shadow(blurRadius: 8, color: Colors.black)]),
+            tooltip: 'Otimizar Ordem de Entrega',
+            onPressed: () {
+              if (_currentLocation != null) {
+                ref.read(routeStopsProvider(widget.activeRoute.id).notifier)
+                   .optimizePendingStops(_currentLocation!.latitude, _currentLocation!.longitude);
+                UiUtils.showUndoToast(context, 'Rota reorganizada pela distância mais curta!', () {});
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('A aguardar localização GPS...')));
+              }
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.flag, color: Colors.white, shadows: [Shadow(blurRadius: 8, color: Colors.black)]),
+            tooltip: 'Finalizar Rota Manualmente',
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Terminar Rota Manualmente?'),
+                  content: Text(pendingStops.isNotEmpty 
+                      ? 'Ainda faltam ${pendingStops.length} entregas. Tem a certeza que deseja dar a rota por terminada e ir para o resumo?'
+                      : 'Deseja avançar para o resumo do dia?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context), 
+                      child: const Text('CANCELAR', style: TextStyle(color: Colors.grey)),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.black),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(builder: (context) => DailySummaryScreen(activeRoute: widget.activeRoute)),
+                        );
+                      },
+                      child: const Text('TERMINAR', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Stack(
         children: [
@@ -245,7 +291,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
                 userAgentPackageName: 'com.pao.rota_app',
                 maxNativeZoom: 20,
                 maxZoom: 22,
-                keepBuffer: 3, // Performance tweak: caches nearby tiles to eliminate network lag during motion
+                keepBuffer: 3, 
               ),
               if (_currentLocation != null)
                 MarkerLayer(
