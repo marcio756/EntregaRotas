@@ -7,23 +7,26 @@ import '../../../core/services/history_service.dart';
 import '../../routes/providers/route_stop_provider.dart';
 import '../../products/providers/product_provider.dart';
 
-/// Provides a dynamic dashboard at the end of the route.
-/// Displays total deliveries made, products delivered, and calculated values to receive.
+/// Provides a dynamic dashboard at the end of the route session.
 class DailySummaryScreen extends ConsumerWidget {
-  final DeliveryRoute activeRoute;
+  final List<DeliveryRoute> activeRoutes;
+  final String sessionName;
+  final String sessionIds;
   final HistoryService _historyService = HistoryService();
 
-  DailySummaryScreen({super.key, required this.activeRoute});
+  DailySummaryScreen({
+    super.key, 
+    required this.activeRoutes,
+    required this.sessionName,
+    required this.sessionIds,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-
-    // 1. Obter estado atual das paragens e o catálogo de produtos
-    final stops = ref.watch(routeStopsProvider(activeRoute.id));
+    final stops = ref.watch(routeStopsProvider(sessionIds));
     final products = ref.watch(productListProvider);
 
-    // 2. Inicializar motores de cálculo dinâmico e contadores específicos por desvio
     int totalDeliveries = stops.where((s) => s.isDelivered).length;
     double totalValueToReceive = 0.0;
     
@@ -31,7 +34,6 @@ class DailySummaryScreen extends ConsumerWidget {
     final Map<String, int> notDeliveredStock = {};
     final Map<String, int> extraStock = {};
 
-    // 3. Processar agregações avançadas de stock com base nos metadados inlined
     for (var stop in stops) {
       for (var item in stop.productsToDeliver) {
         final parts = item.split('x ');
@@ -48,28 +50,27 @@ class DailySummaryScreen extends ConsumerWidget {
             originalQty = int.tryParse(subParts[1]) ?? currentQty;
           }
 
-          final pureName = pureProductInfo.split(' (')[0].trim();
+          // A chave para exibir na interface será o Nome Completo + (Categoria)
+          final displayName = pureProductInfo; 
+          
+          // A chave de pesquisa financeira retira a categoria para poder cruzar com o catálogo Isar
+          final searchName = pureProductInfo.split(' (')[0].trim(); 
 
           if (stop.isDelivered) {
-            // Se a casa foi marcada como entregue
-            if (currentQty > 0) {
-              deliveredStock[pureName] = (deliveredStock[pureName] ?? 0) + currentQty;
-            }
+            if (currentQty > 0) deliveredStock[displayName] = (deliveredStock[displayName] ?? 0) + currentQty;
             
             if (currentQty > originalQty) {
-              extraStock[pureName] = (extraStock[pureName] ?? 0) + (currentQty - originalQty);
+              extraStock[displayName] = (extraStock[displayName] ?? 0) + (currentQty - originalQty);
             } else if (currentQty < originalQty) {
-              notDeliveredStock[pureName] = (notDeliveredStock[pureName] ?? 0) + (originalQty - currentQty);
+              notDeliveredStock[displayName] = (notDeliveredStock[displayName] ?? 0) + (originalQty - currentQty);
             }
 
-            // Cruzar com o catálogo para calcular valor financeiro líquido
             try {
-              final product = products.firstWhere((p) => p.name == pureName);
+              final product = products.firstWhere((p) => p.name == searchName);
               totalValueToReceive += (product.unitPrice ?? 0.0) * currentQty;
             } catch (_) {}
           } else {
-            // Se o cliente não foi entregue, toda a quantidade original vai para Falta
-            notDeliveredStock[pureName] = (notDeliveredStock[pureName] ?? 0) + originalQty;
+            notDeliveredStock[displayName] = (notDeliveredStock[displayName] ?? 0) + originalQty;
           }
         }
       }
@@ -81,19 +82,18 @@ class DailySummaryScreen extends ConsumerWidget {
       
       await _historyService.saveDaySummary(
         dateStr: formattedDate,
-        routeName: activeRoute.name,
+        routeName: sessionName, 
         delivered: deliveredStock,
         notDelivered: notDeliveredStock,
         extra: extraStock,
       );
 
-      // Repor as flags de entrega da rota local para o Domingo seguinte automaticamente
-      await ref.read(routeStopsProvider(activeRoute.id).notifier).resetRouteCompletion();
+      await ref.read(routeStopsProvider(sessionIds).notifier).resetRouteCompletion();
 
       if (ctx.mounted) {
         ScaffoldMessenger.of(ctx).showSnackBar(
           const SnackBar(
-            content: Text('Resumo de hoje gravado no Histórico com sucesso! Rota limpa para a próxima semana.'),
+            content: Text('Resumo de hoje gravado no Histórico com sucesso! Trabalho limpo para o próximo ciclo.'),
             backgroundColor: Colors.green,
           ),
         );
@@ -114,11 +114,10 @@ class DailySummaryScreen extends ConsumerWidget {
             Center(
               child: Column(
                 children: [
-                  Icon(Icons.verified_rounded, size: 64, color: theme.colorScheme.primary)
-                      .animate().scale(duration: 500.ms, curve: Curves.easeOutBack),
+                  Icon(Icons.verified_rounded, size: 64, color: theme.colorScheme.primary).animate().scale(duration: 500.ms, curve: Curves.easeOutBack),
                   const SizedBox(height: 16),
-                  Text('Rota Concluída!', style: theme.textTheme.titleLarge?.copyWith(fontSize: 28)),
-                  const Text('Bom trabalho. Aqui está o resumo de hoje.', style: TextStyle(color: Colors.grey)),
+                  Text('Trabalho Concluído!', style: theme.textTheme.titleLarge?.copyWith(fontSize: 28)),
+                  const Text('Bom trabalho. Aqui está o resumo final.', style: TextStyle(color: Colors.grey)),
                 ],
               ),
             ),
@@ -154,11 +153,7 @@ class DailySummaryScreen extends ConsumerWidget {
               width: double.infinity,
               height: 60,
               child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.secondary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                ),
+                style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.secondary, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
                 onPressed: () => concludeAndSaveDay(context),
                 icon: const Icon(Icons.archive_outlined, size: 26),
                 label: const Text('GRAVAR E FECHAR DIA', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
@@ -171,15 +166,10 @@ class DailySummaryScreen extends ConsumerWidget {
     );
   }
 
-  /// Reusable widget for top-level numeric metrics.
   Widget _buildMetricCard(ThemeData theme, String title, String value, IconData icon) {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.cardTheme.color,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF333333)),
-      ),
+      decoration: BoxDecoration(color: theme.cardTheme.color, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFF333333))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -193,43 +183,28 @@ class DailySummaryScreen extends ConsumerWidget {
     );
   }
 
-  /// Builds the dynamically calculated list of all products delivered.
   Widget _buildStockList(ThemeData theme, Map<String, int> stockData, Color accentColor, String badgeText) {
     if (stockData.isEmpty) {
       return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.cardTheme.color,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF333333)),
-        ),
-        child: const Center(child: Text('Sem registos para esta categoria.', style: TextStyle(color: Colors.grey, fontSize: 13))),
+        width: double.infinity, 
+        padding: const EdgeInsets.all(16), 
+        decoration: BoxDecoration(color: theme.cardTheme.color, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFF333333))), 
+        child: const Center(child: Text('Sem registos para esta categoria.', style: TextStyle(color: Colors.grey, fontSize: 13)))
       );
     }
-
+    
     final entries = stockData.entries.toList();
-
     return Container(
-      decoration: BoxDecoration(
-        color: theme.cardTheme.color,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF333333)),
-      ),
+      decoration: BoxDecoration(color: theme.cardTheme.color, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFF333333))),
       child: ListView.separated(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: entries.length,
+        shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), itemCount: entries.length,
         separatorBuilder: (context, index) => const Divider(color: Color(0xFF333333), height: 1),
         itemBuilder: (context, index) {
           final item = entries[index];
           return ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
             title: Text(item.key, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-            trailing: Text(
-              '${item.value} $badgeText', 
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: accentColor),
-            ),
+            trailing: Text('${item.value} $badgeText', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: accentColor)),
           );
         },
       ),

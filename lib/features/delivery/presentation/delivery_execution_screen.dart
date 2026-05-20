@@ -19,9 +19,16 @@ import '../../routes/presentation/order_details_screen.dart';
 import 'widgets/route_bottom_sheet.dart';
 
 class DeliveryExecutionScreen extends ConsumerStatefulWidget {
-  final DeliveryRoute activeRoute;
+  final List<DeliveryRoute> activeRoutes;
+  final String sessionName;
+  final String sessionIds;
 
-  const DeliveryExecutionScreen({super.key, required this.activeRoute});
+  const DeliveryExecutionScreen({
+    super.key, 
+    required this.activeRoutes,
+    required this.sessionName,
+    required this.sessionIds,
+  });
 
   @override
   ConsumerState<DeliveryExecutionScreen> createState() => _DeliveryExecutionScreenState();
@@ -72,10 +79,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     }
 
     Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high, 
-        distanceFilter: 8,
-      ),
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 8),
     ).listen((Position position) {
       if (position.accuracy > 15.0) return;
 
@@ -104,29 +108,25 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   }
 
   void _evaluateAutoDeliveryTrigger(Position position) {
-    final stops = ref.read(routeStopsProvider(widget.activeRoute.id));
+    final stops = ref.read(routeStopsProvider(widget.sessionIds));
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
 
     for (var stop in pendingStops) {
       if (_ignoredGeofenceIds.contains(stop.id)) continue;
 
-      final distance = GeoUtils.calculateDistance(
-        position.latitude, position.longitude,
-        stop.latitude, stop.longitude,
-      );
+      final distance = GeoUtils.calculateDistance(position.latitude, position.longitude, stop.latitude, stop.longitude);
 
       if (distance <= 25.0) {
         _ignoredGeofenceIds.add(stop.id);
         HapticFeedback.lightImpact();
         
-        ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stop.id, true);
+        ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stop.id, true);
         
         UiUtils.showUndoToast(
-          context, 
-          '${stop.orderName} marcado como Entregue (Automático).', 
+          context, '${stop.orderName} marcado como Entregue (Automático).', 
           () {
             _ignoredGeofenceIds.remove(stop.id);
-            ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stop.id, false);
+            ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stop.id, false);
           }
         );
         break;
@@ -135,9 +135,9 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   }
 
   void _handleDeliveryComplete(int stopId, String orderName) {
-    ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, true);
+    ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stopId, true);
     UiUtils.showUndoToast(context, '$orderName entregue com sucesso.', () {
-      ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, false);
+      ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stopId, false);
     });
   }
 
@@ -147,14 +147,10 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
         transitionDuration: const Duration(milliseconds: 400),
         pageBuilder: (context, animation, secondaryAnimation) => OrderDetailsScreen(stop: stop),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
-                  .animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-              child: child,
-            ),
-          );
+          return FadeTransition(opacity: animation, child: SlideTransition(
+            position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+            child: child,
+          ));
         },
       ),
     );
@@ -163,7 +159,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final stops = ref.watch(routeStopsProvider(widget.activeRoute.id));
+    final stops = ref.watch(routeStopsProvider(widget.sessionIds));
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
 
     if (!_isLocating && pendingStops.isEmpty && stops.isNotEmpty) {
@@ -172,19 +168,14 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.check_circle_outline, size: 80, color: theme.colorScheme.secondary)
-                .animate().scale().fadeIn(),
+              Icon(Icons.check_circle_outline, size: 80, color: theme.colorScheme.secondary).animate().scale().fadeIn(),
               const SizedBox(height: 16),
               const Text('Todas as entregas concluídas!').animate().fadeIn().slideY(),
               const SizedBox(height: 32),
               ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.primary,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                ),
+                style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16)),
                 onPressed: () => Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (context) => DailySummaryScreen(activeRoute: widget.activeRoute)),
+                  MaterialPageRoute(builder: (context) => DailySummaryScreen(activeRoutes: widget.activeRoutes, sessionName: widget.sessionName, sessionIds: widget.sessionIds)),
                 ),
                 icon: const Icon(Icons.bar_chart),
                 label: const Text('VER RESUMO DO DIA', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -197,24 +188,16 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
 
     final List<Marker> mapMarkers = pendingStops.map((stop) {
       return Marker(
-        key: ValueKey(stop.id),
-        point: LatLng(stop.latitude, stop.longitude),
-        width: 80, 
-        height: 80,
-        alignment: Alignment.center, 
+        key: ValueKey(stop.id), point: LatLng(stop.latitude, stop.longitude), width: 80, height: 80, alignment: Alignment.center, 
         child: GestureDetector(
-          onTap: () => _triggerDrillTransition(stop),
-          behavior: HitTestBehavior.opaque, 
+          onTap: () => _triggerDrillTransition(stop), behavior: HitTestBehavior.opaque, 
           child: Stack(
-            alignment: Alignment.center,
-            clipBehavior: Clip.none,
+            alignment: Alignment.center, clipBehavior: Clip.none,
             children: [
               Positioned(
                 bottom: 40,
                 child: Icon(
-                  Icons.location_on,
-                  color: theme.colorScheme.primary,
-                  size: 50,
+                  Icons.location_on, color: theme.colorScheme.primary, size: 50,
                   shadows: const [Shadow(blurRadius: 10.0, color: Colors.black, offset: Offset(2, 2))],
                 ).animate(onPlay: (controller) => controller.repeat()).shimmer(duration: 2.seconds),
               ),
@@ -227,7 +210,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text(widget.activeRoute.name, style: const TextStyle(shadows: [Shadow(blurRadius: 10, color: Colors.black)])),
+        title: Text(widget.sessionName, style: const TextStyle(shadows: [Shadow(blurRadius: 10, color: Colors.black)])),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
@@ -236,9 +219,9 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
             tooltip: 'Otimizar Ordem de Entrega',
             onPressed: () {
               if (_currentLocation != null) {
-                ref.read(routeStopsProvider(widget.activeRoute.id).notifier)
+                ref.read(routeStopsProvider(widget.sessionIds).notifier)
                    .optimizePendingStops(_currentLocation!.latitude, _currentLocation!.longitude);
-                UiUtils.showUndoToast(context, 'Rota reorganizada pela distância mais curta!', () {});
+                UiUtils.showUndoToast(context, 'Plano reorganizado pela distância mais curta!', () {});
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('A aguardar localização GPS...')));
               }
@@ -246,27 +229,22 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
           ),
           IconButton(
             icon: const Icon(Icons.flag, color: Colors.white, shadows: [Shadow(blurRadius: 8, color: Colors.black)]),
-            tooltip: 'Finalizar Rota Manualmente',
+            tooltip: 'Finalizar Manualmente',
             onPressed: () {
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
-                  title: const Text('Terminar Rota Manualmente?'),
+                  title: const Text('Terminar Sessão Manualmente?'),
                   content: Text(pendingStops.isNotEmpty 
-                      ? 'Ainda faltam ${pendingStops.length} entregas. Tem a certeza que deseja dar a rota por terminada e ir para o resumo?'
+                      ? 'Ainda faltam ${pendingStops.length} entregas. Tem a certeza que deseja dar por terminada e ir para o resumo?'
                       : 'Deseja avançar para o resumo do dia?'),
                   actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context), 
-                      child: const Text('CANCELAR', style: TextStyle(color: Colors.grey)),
-                    ),
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCELAR', style: TextStyle(color: Colors.grey))),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.black),
                       onPressed: () {
                         Navigator.pop(context);
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(builder: (context) => DailySummaryScreen(activeRoute: widget.activeRoute)),
-                        );
+                        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => DailySummaryScreen(activeRoutes: widget.activeRoutes, sessionName: widget.sessionName, sessionIds: widget.sessionIds)));
                       },
                       child: const Text('TERMINAR', style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
@@ -281,32 +259,16 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
         children: [
           FlutterMap(
             mapController: _mapController,
-            options: const MapOptions(
-              initialCenter: LatLng(39.3999, -8.2245),
-              initialZoom: 16.0,
-            ),
+            options: const MapOptions(initialCenter: LatLng(39.3999, -8.2245), initialZoom: 16.0),
             children: [
-              TileLayer(
-                urlTemplate: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
-                userAgentPackageName: 'com.pao.rota_app',
-                maxNativeZoom: 20,
-                maxZoom: 22,
-                keepBuffer: 3, 
-              ),
+              TileLayer(urlTemplate: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', userAgentPackageName: 'com.pao.rota_app', maxNativeZoom: 20, maxZoom: 22, keepBuffer: 3),
               if (_currentLocation != null)
                 MarkerLayer(
                   markers: [
                     Marker(
-                      point: LatLng(_currentLocation!.latitude, _currentLocation!.longitude),
-                      width: 60,
-                      height: 60,
-                      alignment: Alignment.center,
+                      point: LatLng(_currentLocation!.latitude, _currentLocation!.longitude), width: 60, height: 60, alignment: Alignment.center,
                       child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.blueAccent.withValues(alpha: 0.3),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.blue, width: 2),
-                        ),
+                        decoration: BoxDecoration(color: Colors.blueAccent.withValues(alpha: 0.3), shape: BoxShape.circle, border: Border.all(color: Colors.blue, width: 2)),
                         child: const Icon(Icons.drive_eta, color: Colors.blueAccent, size: 28),
                       ),
                     ),
@@ -314,26 +276,11 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
                 ),
               MarkerClusterLayerWidget(
                 options: MarkerClusterLayerOptions(
-                  maxClusterRadius: 45,
-                  size: const Size(50, 50),
-                  alignment: Alignment.center,
-                  padding: const EdgeInsets.all(50),
-                  maxZoom: 20,
-                  markers: mapMarkers,
+                  maxClusterRadius: 45, size: const Size(50, 50), alignment: Alignment.center, padding: const EdgeInsets.all(50), maxZoom: 20, markers: mapMarkers,
                   builder: (context, markers) {
                     return Container(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: theme.colorScheme.primary,
-                        border: Border.all(color: Colors.black, width: 3),
-                        boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black54, offset: Offset(0, 4))]
-                      ),
-                      child: Center(
-                        child: Text(
-                          markers.length.toString(),
-                          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
-                      ),
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: theme.colorScheme.primary, border: Border.all(color: Colors.black, width: 3), boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black54, offset: Offset(0, 4))]),
+                      child: Center(child: Text(markers.length.toString(), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18))),
                     );
                   },
                 ),
@@ -341,8 +288,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
             ],
           ),
           
-          if (_isLocating)
-            const SkeletonLoader(height: double.infinity, borderRadius: 0),
+          if (_isLocating) const SkeletonLoader(height: double.infinity, borderRadius: 0),
             
           if (!_isLocating && pendingStops.isNotEmpty)
             RouteBottomSheet(
@@ -351,8 +297,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
               onDeliveryComplete: _handleDeliveryComplete,
               onStopTap: _triggerDrillTransition,
               onProductQuantityAdjust: (stopId, prodIdx, isInc) {
-                ref.read(routeStopsProvider(widget.activeRoute.id).notifier)
-                   .adjustProductQuantity(stopId, prodIdx, isInc);
+                ref.read(routeStopsProvider(widget.sessionIds).notifier).adjustProductQuantity(stopId, prodIdx, isInc);
               },
             ),
         ],

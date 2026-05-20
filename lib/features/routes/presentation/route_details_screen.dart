@@ -5,7 +5,7 @@ import '../../../core/database/collections/route_collection.dart';
 import '../../../core/database/collections/route_stop_collection.dart';
 import '../providers/route_stop_provider.dart';
 import 'add_order_screen.dart'; 
-import 'route_load_sheet_screen.dart'; // NOVA IMPORTAÇÃO
+import 'route_load_sheet_screen.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 /// Displays and manages the specific orders (stops) allocated to a Delivery Route.
@@ -28,7 +28,7 @@ class RouteDetailsScreen extends ConsumerWidget {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
             onPressed: () {
-              ref.read(routeStopsProvider(route.id).notifier).deleteOrder(stop.id);
+              ref.read(routeStopsProvider(route.id.toString()).notifier).deleteOrder(stop.id);
               Navigator.pop(context);
             },
             child: const Text('APAGAR', style: TextStyle(color: Colors.white)),
@@ -40,7 +40,7 @@ class RouteDetailsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final stops = ref.watch(routeStopsProvider(route.id));
+    final stops = ref.watch(routeStopsProvider(route.id.toString()));
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -53,7 +53,11 @@ class RouteDetailsScreen extends ConsumerWidget {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => RouteLoadSheetScreen(activeRoute: route),
+                  builder: (context) => RouteLoadSheetScreen(
+                    activeRoutes: [route], 
+                    sessionName: route.name, 
+                    sessionIds: route.id.toString(),
+                  ),
                 ),
               );
             },
@@ -79,7 +83,7 @@ class RouteDetailsScreen extends ConsumerWidget {
                 final item = reorderedStops.removeAt(oldIndex);
                 reorderedStops.insert(newIndex, item);
                 
-                ref.read(routeStopsProvider(route.id).notifier).updateStopsOrder(reorderedStops);
+                ref.read(routeStopsProvider(route.id.toString()).notifier).updateStopsOrder(reorderedStops);
               },
               itemBuilder: (context, index) {
                 final stop = stops[index];

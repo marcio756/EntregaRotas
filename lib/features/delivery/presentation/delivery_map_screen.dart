@@ -1,9 +1,10 @@
+// Ficheiro: lib/features/delivery/presentation/delivery_map_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart'; // NOVA IMPORTAÇÃO
+import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart'; 
 import 'dart:io';
 import '../../../core/database/collections/route_collection.dart';
 import '../../../core/database/collections/route_stop_collection.dart';
@@ -12,9 +13,16 @@ import '../../routes/presentation/add_order_screen.dart';
 import '../../../core/presentation/widgets/skeleton_loader.dart';
 
 class DeliveryMapScreen extends ConsumerStatefulWidget {
-  final DeliveryRoute activeRoute;
+  final List<DeliveryRoute> activeRoutes;
+  final String sessionName;
+  final String sessionIds;
 
-  const DeliveryMapScreen({super.key, required this.activeRoute});
+  const DeliveryMapScreen({
+    super.key, 
+    required this.activeRoutes,
+    required this.sessionName,
+    required this.sessionIds,
+  });
 
   @override
   ConsumerState<DeliveryMapScreen> createState() => _DeliveryMapScreenState();
@@ -48,7 +56,6 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
         }
       }
 
-      // OTIMIZAÇÃO: Obter a última localização conhecida para renderizar o mapa de imediato (Percepção de Velocidade)
       final lastPos = await Geolocator.getLastKnownPosition();
       if (lastPos != null && mounted) {
         setState(() {
@@ -58,11 +65,7 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
         _mapController.move(_currentCenter, 18.0);
       }
 
-      // Obter localização precisa em segundo plano e atualizar silenciosamente
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
+      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       final newLatLng = LatLng(position.latitude, position.longitude);
       
       if (mounted) {
@@ -77,13 +80,10 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
     }
   }
 
-  /// Mostra os detalhes de UM único pedido
   void _showStopDetails(RouteStop stop) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
         final theme = Theme.of(context);
         return SingleChildScrollView(
@@ -96,14 +96,9 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
                 children: [
                   Icon(Icons.person_pin_circle, color: theme.colorScheme.primary, size: 28),
                   const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(stop.orderName, style: theme.textTheme.titleLarge),
-                  ),
+                  Expanded(child: Text(stop.orderName, style: theme.textTheme.titleLarge)),
                   if (stop.isDelivered)
-                    Chip(
-                      label: const Text('Entregue', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                      backgroundColor: theme.colorScheme.secondary,
-                    )
+                    Chip(label: const Text('Entregue', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), backgroundColor: theme.colorScheme.secondary)
                 ],
               ),
               const SizedBox(height: 8),
@@ -116,18 +111,12 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
                   width: double.infinity,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    image: DecorationImage(
-                      image: FileImage(File(stop.localImagePath!)),
-                      fit: BoxFit.cover,
-                    ),
+                    image: DecorationImage(image: FileImage(File(stop.localImagePath!)), fit: BoxFit.cover),
                   ),
                 ),
               ],
 
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16.0),
-                child: Divider(color: Color(0xFF2C2C2C)),
-              ),
+              const Padding(padding: EdgeInsets.symmetric(vertical: 16.0), child: Divider(color: Color(0xFF2C2C2C))),
               Text('Produtos a Entregar', style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               if (stop.productsToDeliver.isEmpty)
@@ -156,21 +145,17 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
     );
   }
 
-  /// Mostra uma lista de escolha rápida quando clicas num aglomerado (vários pedidos na mesma porta)
   void _showClusterDetails(List<Marker> markers) {
-    // Extrai o objeto RouteStop que escondemos dentro da chave (Key) de cada marcador
     final stops = markers.map((m) => (m.key as ValueKey<RouteStop>).value).toList();
 
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
         final theme = Theme.of(context);
         return SafeArea(
           child: Column(
-            mainAxisSize: MainAxisSize.min, // Ocupa apenas o espaço necessário
+            mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
                 padding: const EdgeInsets.all(20.0),
@@ -192,17 +177,14 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: stop.isDelivered ? Colors.grey.shade800 : theme.colorScheme.primary.withValues(alpha: 0.2),
-                        child: Icon(
-                          stop.isDelivered ? Icons.check : Icons.location_on, 
-                          color: stop.isDelivered ? Colors.grey : theme.colorScheme.primary
-                        ),
+                        child: Icon(stop.isDelivered ? Icons.check : Icons.location_on, color: stop.isDelivered ? Colors.grey : theme.colorScheme.primary),
                       ),
                       title: Text(stop.orderName, style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text(stop.productsToDeliver.join(', '), maxLines: 1, overflow: TextOverflow.ellipsis),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
                       onTap: () {
-                        Navigator.pop(context); // Fecha a lista de opções do cluster
-                        _showStopDetails(stop); // Abre imediatamente o ecrã completo daquele pedido específico
+                        Navigator.pop(context);
+                        _showStopDetails(stop); 
                       },
                     );
                   },
@@ -215,19 +197,41 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
       },
     );
   }
+  
+  void _promptTargetRouteForNewOrder() {
+    if (widget.activeRoutes.length == 1) {
+      Navigator.of(context).push(MaterialPageRoute(builder: (context) => AddOrderScreen(activeRoute: widget.activeRoutes.first)));
+    } else {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Adicionar a qual Rota?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: widget.activeRoutes.map((route) => ListTile(
+              leading: const Icon(Icons.route),
+              title: Text(route.name),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.of(context).push(MaterialPageRoute(builder: (context) => AddOrderScreen(activeRoute: route)));
+              },
+            )).toList(),
+          ),
+        )
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final stops = ref.watch(routeStopsProvider(widget.activeRoute.id));
+    final stops = ref.watch(routeStopsProvider(widget.sessionIds));
 
-    // Mapeamento dos pedidos para a classe nativa Marker
     final List<Marker> clientMarkers = stops.map((stop) {
       return Marker(
-        key: ValueKey(stop), // OTIMIZAÇÃO: Injetamos o pedido inteiro na chave do marcador para uso futuro
+        key: ValueKey(stop),
         point: LatLng(stop.latitude, stop.longitude),
-        width: 80, 
-        height: 80,
+        width: 80, height: 80,
         alignment: Alignment.center, 
         child: GestureDetector(
           onTap: () => _showStopDetails(stop),
@@ -242,9 +246,7 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
                   Icons.location_on,
                   color: stop.isDelivered ? Colors.grey.shade700 : theme.colorScheme.primary,
                   size: 50,
-                  shadows: const [
-                    Shadow(blurRadius: 10.0, color: Colors.black, offset: Offset(2, 2)),
-                  ],
+                  shadows: const [Shadow(blurRadius: 10.0, color: Colors.black, offset: Offset(2, 2))],
                 ),
               ),
             ],
@@ -255,12 +257,9 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Mapa: ${widget.activeRoute.name}'),
+        title: Text('Mapa: ${widget.sessionName}'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.my_location),
-            onPressed: _centerOnUserLocation,
-          ),
+          IconButton(icon: const Icon(Icons.my_location), onPressed: _centerOnUserLocation),
         ],
       ),
       body: Stack(
@@ -278,15 +277,12 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
                 maxNativeZoom: 20,
                 maxZoom: 22,
               ),
-              
-              // Camada 1: O marcador do carro que nunca se junta aos clusters
               MarkerLayer(
                 markers: [
                   if (!_isLoadingLocation)
                     Marker(
                       point: _currentCenter,
-                      width: 60,
-                      height: 60,
+                      width: 60, height: 60,
                       alignment: Alignment.center,
                       child: Container(
                         decoration: BoxDecoration(
@@ -299,15 +295,13 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
                     ),
                 ],
               ),
-
-              // Camada 2: O motor inteligente de agrupamento das entregas
               MarkerClusterLayerWidget(
                 options: MarkerClusterLayerOptions(
-                  maxClusterRadius: 45, // Quão próximos têm de estar em pixeis para se agruparem
+                  maxClusterRadius: 45, 
                   size: const Size(50, 50),
                   alignment: Alignment.center,
                   padding: const EdgeInsets.all(50),
-                  maxZoom: 20, // Se estiveres muito colado ao mapa, os pontos começam a desagrupar para clicares individualmente
+                  maxZoom: 20, 
                   markers: clientMarkers,
                   builder: (context, markers) {
                     return Container(
@@ -315,20 +309,14 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
                         shape: BoxShape.circle,
                         color: theme.colorScheme.primary,
                         border: Border.all(color: Colors.black, width: 3),
-                        boxShadow: const [
-                          BoxShadow(blurRadius: 8, color: Colors.black54, offset: Offset(0, 4))
-                        ]
+                        boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black54, offset: Offset(0, 4))]
                       ),
                       child: Center(
-                        child: Text(
-                          markers.length.toString(), // Aqui renderizamos o "2" ou "3"
-                          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
+                        child: Text(markers.length.toString(), style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18)),
                       ),
                     );
                   },
                   onClusterTap: (clusterNode) {
-                    // Clicar numa bolinha de agrupamento abre imediatamente a lista
                     _showClusterDetails(clusterNode.markers);
                   },
                 ),
@@ -340,16 +328,11 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
             const SkeletonLoader(height: double.infinity, borderRadius: 0),
             
           Positioned(
-            bottom: 32,
-            right: 24,
+            bottom: 32, right: 24,
             child: FloatingActionButton.extended(
               backgroundColor: theme.colorScheme.primary,
               foregroundColor: Colors.black,
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context) => AddOrderScreen(activeRoute: widget.activeRoute)),
-                );
-              },
+              onPressed: _promptTargetRouteForNewOrder,
               icon: const Icon(Icons.add_location_alt),
               label: const Text('NOVO PEDIDO', style: TextStyle(fontWeight: FontWeight.bold)),
             ),

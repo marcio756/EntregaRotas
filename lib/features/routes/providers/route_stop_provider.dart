@@ -6,15 +6,15 @@ import '../../../core/database/collections/route_collection.dart';
 import '../../../core/utils/geo_utils.dart';
 import 'package:isar/isar.dart';
 
-/// Provider that fetches and manages orders (stops) for a specific route ID.
-final routeStopsProvider = StateNotifierProvider.family<RouteStopNotifier, List<RouteStop>, int>((ref, routeId) {
-  return RouteStopNotifier(routeId);
+/// Provider that fetches and manages orders (stops) for an Execution Session (1 or more route IDs separated by comma).
+final routeStopsProvider = StateNotifierProvider.family<RouteStopNotifier, List<RouteStop>, String>((ref, routeIdsStr) {
+  return RouteStopNotifier(routeIdsStr);
 });
 
-/// Computes the aggregated sum of all products required for a specific delivery route.
+/// Computes the aggregated sum of all products required for a specific delivery session.
 /// Ensures business logic (aggregation) is completely segregated from the UI layer.
-final routeLoadSummaryProvider = Provider.family<Map<String, int>, int>((ref, routeId) {
-  final stops = ref.watch(routeStopsProvider(routeId));
+final routeLoadSummaryProvider = Provider.family<Map<String, int>, String>((ref, routeIdsStr) {
+  final stops = ref.watch(routeStopsProvider(routeIdsStr));
   final Map<String, int> loadTotals = {};
 
   for (var stop in stops) {
@@ -29,10 +29,10 @@ final routeLoadSummaryProvider = Provider.family<Map<String, int>, int>((ref, ro
           pureProductInfo = remainder.split(' | orig: ')[0].trim();
         }
         
-        final pureName = pureProductInfo.split(' (')[0].trim();
-        
+        // Mantemos a designação completa (incluindo a categoria) como chave de agregação
+        // Ex: "Cacete (Tostado)" em vez de apenas "Cacete"
         if (qty > 0) {
-          loadTotals[pureName] = (loadTotals[pureName] ?? 0) + qty;
+          loadTotals[pureProductInfo] = (loadTotals[pureProductInfo] ?? 0) + qty;
         }
       }
     }
@@ -41,9 +41,11 @@ final routeLoadSummaryProvider = Provider.family<Map<String, int>, int>((ref, ro
 });
 
 class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
-  final int routeId;
+  final String routeIdsStr;
+  late List<int> routeIds;
 
-  RouteStopNotifier(this.routeId) : super([]) {
+  RouteStopNotifier(this.routeIdsStr) : super([]) {
+    routeIds = routeIdsStr.split(',').where((e) => e.isNotEmpty).map((e) => int.parse(e)).toList();
     _loadStops();
   }
 
@@ -55,7 +57,7 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     
     for (var stop in allStops) {
       await stop.route.load();
-      if (stop.route.value?.id == routeId) {
+      if (stop.route.value != null && routeIds.contains(stop.route.value!.id)) {
         strictRouteStops.add(stop);
       }
     }
@@ -241,8 +243,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     });
   }
 
-  /// Optimizes the remaining pending stops using a Greedy TSP algorithm (closest neighbor)
-  /// starting from the provided GPS location. Updates the sequence locally.
   Future<void> optimizePendingStops(double currentLat, double currentLon) async {
     final isar = await isarService.db;
     
@@ -256,7 +256,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     double lastLon = currentLon;
     List<RouteStop> unvisited = List.from(pending);
 
-    // Greedy sorting: always find the closest next point
     while (unvisited.isNotEmpty) {
       RouteStop? nearestStop;
       double minDistance = double.infinity;
@@ -280,7 +279,6 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     final newOrder = [...delivered, ...optimizedPending];
     state = newOrder;
 
-    // Persist optimized order to Isar
     await isar.writeTxn(() async {
       for (int i = 0; i < newOrder.length; i++) {
         final stop = newOrder[i];

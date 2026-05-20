@@ -1,8 +1,10 @@
+// Ficheiro: lib/core/database/isar_service.dart
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'collections/product_collection.dart';
 import 'collections/route_collection.dart';
 import 'collections/route_stop_collection.dart';
+import 'collections/route_group_collection.dart';
 
 /// Manages the local Isar Database lifecycle.
 /// Ensures that the offline-first architecture is robust and always available.
@@ -21,7 +23,8 @@ class IsarService {
         [
           ProductSchema, 
           DeliveryRouteSchema,
-          RouteStopSchema // Agora o RouteStop contém tudo (Pedidos)
+          RouteStopSchema, // Agora o RouteStop contém tudo (Pedidos)
+          RouteGroupSchema // Nova coleção para gerir agregações de Rotas (ex: Domingo)
         ],
         directory: dir.path,
         inspector: true, // Enables Isar Inspector for debugging in browser

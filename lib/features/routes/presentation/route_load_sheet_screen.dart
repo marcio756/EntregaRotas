@@ -6,15 +6,22 @@ import '../../../core/database/collections/route_collection.dart';
 import '../providers/route_stop_provider.dart';
 
 /// Screen dedicated to presenting the aggregated sum of all products
-/// required for a specific delivery route. Acts as the pre-departure Load Sheet.
+/// required for a specific delivery session (single route or grouped routes). Acts as the pre-departure Load Sheet.
 class RouteLoadSheetScreen extends ConsumerWidget {
-  final DeliveryRoute activeRoute;
+  final List<DeliveryRoute> activeRoutes;
+  final String sessionName;
+  final String sessionIds;
 
-  const RouteLoadSheetScreen({super.key, required this.activeRoute});
+  const RouteLoadSheetScreen({
+    super.key, 
+    required this.activeRoutes,
+    required this.sessionName,
+    required this.sessionIds,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final loadTotals = ref.watch(routeLoadSummaryProvider(activeRoute.id));
+    final loadTotals = ref.watch(routeLoadSummaryProvider(sessionIds));
     final theme = Theme.of(context);
 
     int totalItems = loadTotals.values.fold(0, (sum, item) => sum + item);
@@ -22,13 +29,13 @@ class RouteLoadSheetScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Guia de Carga'),
+        title: Text('Carga: $sessionName'),
         centerTitle: true,
       ),
       body: sortedEntries.isEmpty
           ? Center(
               child: Text(
-                'A rota não tem produtos agendados.',
+                'A sessão não tem produtos agendados.',
                 style: TextStyle(color: Colors.grey.shade600),
               ).animate().fadeIn().scale(),
             )

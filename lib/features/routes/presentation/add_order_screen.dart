@@ -65,15 +65,25 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
         if (parts.length == 2) {
           final qty = int.tryParse(parts[0]) ?? 0;
           
-          final rawName = parts[1].trim();
-          final pureName = rawName.split(' (')[0].trim();
+          final rawName = parts[1].trim(); // ex: "Pão (Centeio)"
+          final pureName = rawName.split(' (')[0].trim(); // ex: "Pão"
           
+          // Extrair a categoria isolada para que o Produto em Runtime não fique vazio
+          String? extractedCategory;
+          if (rawName.contains(' (')) {
+            extractedCategory = rawName.substring(rawName.indexOf(' (') + 2, rawName.length - 1);
+          }
+
           try {
             final targetProduct = catalog.firstWhere((p) => p.name == pureName);
             _addedProducts.add(targetProduct);
             _selectedQuantities[targetProduct.id] = qty;
           } catch (_) {
-            final runtimeProduct = Product()..id = pureName.hashCode..name = pureName;
+            final runtimeProduct = Product()
+              ..id = pureName.hashCode
+              ..name = pureName
+              ..category = extractedCategory;
+              
             _addedProducts.add(runtimeProduct);
             _selectedQuantities[runtimeProduct.id] = qty;
           }
@@ -84,7 +94,7 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
 
   void _inheritLastLocationIfNew() {
     if (widget.orderToEdit == null) {
-      final currentStops = ref.read(routeStopsProvider(widget.activeRoute.id));
+      final currentStops = ref.read(routeStopsProvider(widget.activeRoute.id.toString()));
       if (currentStops.isNotEmpty) {
         final lastStop = currentStops.last;
         setState(() {
@@ -205,11 +215,9 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
 
       String? finalImagePath = widget.orderToEdit?.localImagePath;
       
-      // NOVA LÓGICA DE LIMPEZA DE STORAGE (Decomposição SRP)
       if (_capturedImage != null && (widget.orderToEdit == null || _capturedImage!.path != widget.orderToEdit!.localImagePath)) {
         finalImagePath = await _fileService.saveImageLocally(_capturedImage!, prefix: 'pedido');
         
-        // Se já existia uma foto antiga atrelada a este pedido, apagamos a antiga fisicamente do telemóvel
         if (widget.orderToEdit?.localImagePath != null) {
           await _fileService.deleteImageLocally(widget.orderToEdit!.localImagePath!);
         }
@@ -224,7 +232,7 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
       final orderName = _nameController.text.isNotEmpty ? _nameController.text.trim() : 'Pedido #${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
 
       if (widget.orderToEdit != null) {
-        await ref.read(routeStopsProvider(widget.activeRoute.id).notifier).updateOrderInRoute(
+        await ref.read(routeStopsProvider(widget.activeRoute.id.toString()).notifier).updateOrderInRoute(
           stopId: widget.orderToEdit!.id,
           orderName: orderName,
           notes: _notesController.text.trim(),
@@ -235,7 +243,7 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
           products: productsSummary,
         );
       } else {
-        await ref.read(routeStopsProvider(widget.activeRoute.id).notifier).addOrderToRoute(
+        await ref.read(routeStopsProvider(widget.activeRoute.id.toString()).notifier).addOrderToRoute(
           route: widget.activeRoute,
           orderName: orderName,
           notes: _notesController.text.trim(),
@@ -253,13 +261,13 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
 
   void _deleteOrder() {
     final backupOrder = widget.orderToEdit!;
-    final routeId = widget.activeRoute.id;
+    final routeIdStr = widget.activeRoute.id.toString();
     
-    ref.read(routeStopsProvider(routeId).notifier).deleteOrder(backupOrder.id);
+    ref.read(routeStopsProvider(routeIdStr).notifier).deleteOrder(backupOrder.id);
     Navigator.pop(context);
 
     UiUtils.showUndoToast(context, 'Pedido "${backupOrder.orderName}" apagado.', () {
-      ref.read(routeStopsProvider(routeId).notifier).restoreOrder(backupOrder);
+      ref.read(routeStopsProvider(routeIdStr).notifier).restoreOrder(backupOrder);
     });
   }
 
@@ -371,6 +379,7 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(prod.name),
+                  subtitle: Text(prod.category ?? 'Geral', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)), // Nova inclusão visual da Categoria
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
