@@ -48,6 +48,17 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
         }
       }
 
+      // OTIMIZAÇÃO: Obter a última localização conhecida para renderizar o mapa de imediato (Percepção de Velocidade)
+      final lastPos = await Geolocator.getLastKnownPosition();
+      if (lastPos != null && mounted) {
+        setState(() {
+          _currentCenter = LatLng(lastPos.latitude, lastPos.longitude);
+          _isLoadingLocation = false;
+        });
+        _mapController.move(_currentCenter, 18.0);
+      }
+
+      // Obter localização precisa em segundo plano e atualizar silenciosamente
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );

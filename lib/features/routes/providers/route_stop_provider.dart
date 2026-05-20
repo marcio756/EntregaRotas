@@ -1,3 +1,4 @@
+// Ficheiro: lib/features/routes/providers/route_stop_provider.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../main.dart';
 import '../../../core/database/collections/route_stop_collection.dart';
@@ -105,10 +106,89 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     if (stop != null) {
       stop.isDelivered = status;
       await isar.writeTxn(() async {
-        await isar.routeStops.put(stop);
+        await isar.writeTxn(() async {
+          await isar.routeStops.put(stop);
+        });
       });
       await _loadStops(); 
     }
+  }
+
+  /// Adjusts the quantity of a specific product line within a stop dynamically.
+  /// Supports our custom encoding format: "Qtdx Nome (Categoria) | orig: QtdOrig"
+  Future<void> adjustProductQuantity(int stopId, int productIndex, bool isIncrement) async {
+    final isar = await isarService.db;
+    final stop = await isar.routeStops.get(stopId);
+    
+    if (stop != null && productIndex < stop.productsToDeliver.length) {
+      final List<String> updatedProducts = List.from(stop.productsToDeliver);
+      final String currentLine = updatedProducts[productIndex];
+      
+      final parts = currentLine.split('x ');
+      if (parts.length == 2) {
+        int currentQty = int.tryParse(parts[0]) ?? 0;
+        final remainder = parts[1];
+        
+        int originalQty = currentQty;
+        String pureProductInfo = remainder;
+        
+        if (remainder.contains(' | orig: ')) {
+          final subParts = remainder.split(' | orig: ');
+          pureProductInfo = subParts[0];
+          originalQty = int.tryParse(subParts[1]) ?? currentQty;
+        }
+        
+        if (isIncrement) {
+          currentQty++;
+        } else {
+          if (currentQty > 0) currentQty--;
+        }
+        
+        // Encode back with history tracking metadata inline to prevent breaking schema
+        if (currentQty == originalQty) {
+          updatedProducts[productIndex] = '${currentQty}x $pureProductInfo';
+        } else {
+          updatedProducts[productIndex] = '${currentQty}x $pureProductInfo | orig: $originalQty';
+        }
+        
+        stop.productsToDeliver = updatedProducts;
+        await isar.writeTxn(() async {
+          await isar.routeStops.put(stop);
+        });
+        await _loadStops();
+      }
+    }
+  }
+
+  /// Resets all stops within the active route after day completion.
+  Future<void> resetRouteCompletion() async {
+    final isar = await isarService.db;
+    await isar.writeTxn(() async {
+      for (var stop in state) {
+        stop.isDelivered = false;
+        
+        final List<String> cleanedProducts = [];
+        for (var productStr in stop.productsToDeliver) {
+          if (productStr.contains(' | orig: ')) {
+            final parts = productStr.split('x ');
+            if (parts.length == 2) {
+              final remainder = parts[1];
+              final subParts = remainder.split(' | orig: ');
+              final pureProductInfo = subParts[0];
+              final origQty = subParts[1];
+              cleanedProducts.add('${origQty}x $pureProductInfo');
+            } else {
+              cleanedProducts.add(productStr);
+            }
+          } else {
+            cleanedProducts.add(productStr);
+          }
+        }
+        stop.productsToDeliver = cleanedProducts;
+        await isar.routeStops.put(stop);
+      }
+    });
+    await _loadStops();
   }
 
   /// Removes an order completely from the route
@@ -116,6 +196,19 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     final isar = await isarService.db;
     await isar.writeTxn(() async {
       await isar.routeStops.delete(stopId);
+    });
+    await _loadStops();
+  }
+
+  /// Restores a previously deleted Order (RouteStop).
+  /// Used exclusively for Optimistic UI rollbacks when the user undoes a deletion.
+  ///
+  /// @param {RouteStop} order - The exact order entity state to be safely restored into the database.
+  Future<void> restoreOrder(RouteStop order) async {
+    final isar = await isarService.db;
+    await isar.writeTxn(() async {
+      await isar.routeStops.put(order);
+      await order.route.save();
     });
     await _loadStops();
   }

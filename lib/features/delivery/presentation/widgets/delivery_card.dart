@@ -1,23 +1,26 @@
+// Ficheiro: lib/features/delivery/presentation/widgets/delivery_card.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 /// Represents a single delivery stop in the route execution list.
-/// Encapsulates the Optimistic UI swipe action and Geofencing highlight logic
-/// to maintain Single Responsibility and keep the main list clean.
+/// Encapsulates the explicit actions, interactive product quantity adjustments,
+/// and Geofencing highlight logic to maintain Single Responsibility.
 class DeliveryCard extends StatelessWidget {
   final String clientName;
   final String address;
-  final String productsSummary;
+  final List<String> products;
   final bool isNear; // Triggered by Geofencing
   final VoidCallback onDelivered;
+  final Function(int productIndex, bool isIncrement) onQuantityAdjust;
 
   const DeliveryCard({
     super.key,
     required this.clientName,
     required this.address,
-    required this.productsSummary,
+    required this.products,
     required this.isNear,
     required this.onDelivered,
+    required this.onQuantityAdjust,
   });
 
   @override
@@ -43,7 +46,7 @@ class DeliveryCard extends StatelessWidget {
       child: Card(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          // Highlights the card if the user is within the 30m geofence.
+          // Highlights the card if the user is within the geofence boundary.
           side: isNear 
               ? BorderSide(color: theme.colorScheme.primary, width: 2)
               : const BorderSide(color: Color(0xFF333333), width: 1),
@@ -69,7 +72,7 @@ class DeliveryCard extends StatelessWidget {
                         .shimmer(duration: 1500.ms),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(
                 address,
                 style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey),
@@ -78,15 +81,81 @@ class DeliveryCard extends StatelessWidget {
                 padding: EdgeInsets.symmetric(vertical: 12.0),
                 child: Divider(color: Color(0xFF333333)),
               ),
-              Row(
-                children: [
-                  const Icon(Icons.shopping_bag_outlined, size: 20, color: Colors.grey),
-                  const SizedBox(width: 8),
-                  Text(
-                    productsSummary,
-                    style: theme.textTheme.bodyLarge,
+              
+              // Interactive product list panel with quick +/- buttons
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: products.length,
+                itemBuilder: (context, idx) {
+                  final itemStr = products[idx];
+                  
+                  // Extract display representation
+                  final displayStr = itemStr.split(' | orig: ')[0];
+                  final lineParts = displayStr.split('x ');
+                  final qty = lineParts[0];
+                  final nameAndCat = lineParts.length == 2 ? lineParts[1] : displayStr;
+
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.bakery_dining_outlined, size: 20, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            nameAndCat,
+                            style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.remove_circle_outline, color: Colors.grey, size: 22),
+                              onPressed: () => onQuantityAdjust(idx, false),
+                            ),
+                            Container(
+                              constraints: const BoxConstraints(minWidth: 30),
+                              alignment: Alignment.center,
+                              child: Text(
+                                qty,
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.add_circle_outline, color: Colors.amber, size: 22),
+                              onPressed: () => onQuantityAdjust(idx, true),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              
+              const SizedBox(height: 16),
+              // Explicit action button providing an alternative approach to the gesture swipe.
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: theme.colorScheme.secondary.withValues(alpha: 0.5)),
+                    foregroundColor: theme.colorScheme.secondary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                ],
+                  onPressed: onDelivered,
+                  icon: const Icon(Icons.check_circle, size: 20),
+                  label: const Text('MARCAR COMO ENTREGUE', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                ),
               ),
             ],
           ),

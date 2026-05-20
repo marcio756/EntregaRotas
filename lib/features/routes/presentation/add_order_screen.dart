@@ -1,3 +1,4 @@
+// Ficheiro: lib/features/routes/presentation/add_order_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,7 @@ import '../../../core/database/collections/route_collection.dart';
 import '../../../core/database/collections/product_collection.dart';
 import '../../../core/database/collections/route_stop_collection.dart';
 import '../../../core/services/local_file_service.dart';
+import '../../../core/utils/ui_utils.dart';
 import '../../products/providers/product_provider.dart';
 import '../providers/route_stop_provider.dart';
 import 'interactive_map_picker_screen.dart'; 
@@ -17,7 +19,7 @@ import 'street_view_capture_screen.dart';
 /// or parsing and modifying an existing RouteStop object.
 class AddOrderScreen extends ConsumerStatefulWidget {
   final DeliveryRoute activeRoute;
-  final RouteStop? orderToEdit; // Optional object. If passed, triggers Edit Mode.
+  final RouteStop? orderToEdit;
 
   const AddOrderScreen({super.key, required this.activeRoute, this.orderToEdit});
 
@@ -59,21 +61,22 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
         _capturedImage = File(widget.orderToEdit!.localImagePath!);
       }
 
-      // Rebuild product associations dynamically from the current product catalog
       final catalog = ref.read(productListProvider);
       for (var summary in widget.orderToEdit!.productsToDeliver) {
         final parts = summary.split('x ');
         if (parts.length == 2) {
           final qty = int.tryParse(parts[0]) ?? 0;
-          final productName = parts[1].trim();
+          
+          // OTIMIZAÇÃO: Parsing reverso para ignorar a Categoria durante a reconstrução dos objetos
+          final rawName = parts[1].trim();
+          final pureName = rawName.split(' (')[0].trim();
           
           try {
-            final targetProduct = catalog.firstWhere((p) => p.name == productName);
+            final targetProduct = catalog.firstWhere((p) => p.name == pureName);
             _addedProducts.add(targetProduct);
             _selectedQuantities[targetProduct.id] = qty;
           } catch (_) {
-            // Transient handling if a product was deleted from master catalog but remains on old log
-            final runtimeProduct = Product()..id = productName.hashCode..name = productName;
+            final runtimeProduct = Product()..id = pureName.hashCode..name = pureName;
             _addedProducts.add(runtimeProduct);
             _selectedQuantities[runtimeProduct.id] = qty;
           }
@@ -187,13 +190,13 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
       final List<String> productsSummary = [];
       for (var prod in _addedProducts) {
         final qty = _selectedQuantities[prod.id] ?? 0;
-        if (qty > 0) productsSummary.add('${qty}x ${prod.name}');
+        // OTIMIZAÇÃO: Injeta a Categoria diretamente na string que é exibida na App de Delivery e Cartões
+        if (qty > 0) productsSummary.add('${qty}x ${prod.name} (${prod.category ?? 'Geral'})');
       }
 
       final orderName = _nameController.text.isNotEmpty ? _nameController.text.trim() : 'Pedido #${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
 
       if (widget.orderToEdit != null) {
-        // Modo: Edição de Pedido Existente
         await ref.read(routeStopsProvider(widget.activeRoute.id).notifier).updateOrderInRoute(
           stopId: widget.orderToEdit!.id,
           orderName: orderName,
@@ -205,7 +208,6 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
           products: productsSummary,
         );
       } else {
-        // Modo: Criação de Novo Pedido
         await ref.read(routeStopsProvider(widget.activeRoute.id).notifier).addOrderToRoute(
           route: widget.activeRoute,
           orderName: orderName,
@@ -215,11 +217,26 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
           captureMethod: _captureMethod,
           imagePath: finalImagePath,
           products: productsSummary,
-      );
+        );
       }
 
       if (mounted) Navigator.pop(context);
     }
+  }
+
+  /// Implements Optimistic UI deletion pattern. Hides instantly and offers recovery context.
+  void _deleteOrder() {
+    final backupOrder = widget.orderToEdit!;
+    final routeId = widget.activeRoute.id;
+    
+    // Optimistically execute delete logic
+    ref.read(routeStopsProvider(routeId).notifier).deleteOrder(backupOrder.id);
+    Navigator.pop(context);
+
+    // Provide the safety net (Undo) via common utility
+    UiUtils.showUndoToast(context, 'Pedido "${backupOrder.orderName}" apagado.', () {
+      ref.read(routeStopsProvider(routeId).notifier).restoreOrder(backupOrder);
+    });
   }
 
   @override
@@ -351,15 +368,44 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
               }),
 
               const SizedBox(height: 40),
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.black),
-                  onPressed: _saveOrder,
-                  child: Text(isEditing ? 'CONCLUÍDO / ATUALIZAR' : 'GUARDAR PEDIDO NA ROTA', style: const TextStyle(fontWeight: FontWeight.bold)),
+              if (isEditing)
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 1,
+                      child: SizedBox(
+                        height: 56,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.error, foregroundColor: Colors.white),
+                          onPressed: _deleteOrder,
+                          child: const Icon(Icons.delete_outline),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 3,
+                      child: SizedBox(
+                        height: 56,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.black),
+                          onPressed: _saveOrder,
+                          child: const Text('ATUALIZAR', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.black),
+                    onPressed: _saveOrder,
+                    child: const Text('GUARDAR PEDIDO NA ROTA', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
                 ),
-              ),
             ],
           ),
         ),

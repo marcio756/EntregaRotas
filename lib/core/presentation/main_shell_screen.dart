@@ -1,7 +1,9 @@
+// Ficheiro: lib/core/presentation/main_shell_screen.dart
 import 'package:flutter/material.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/products/presentation/products_list_screen.dart';
 import '../../features/routes/presentation/routes_management_screen.dart';
+import '../../features/delivery/presentation/history_screen.dart'; // Nova importação
 
 class MainShellScreen extends StatefulWidget {
   const MainShellScreen({super.key});
@@ -16,7 +18,8 @@ class _MainShellScreenState extends State<MainShellScreen> {
   final List<Widget> _screens = [
     const HomeScreen(),
     const RoutesManagementScreen(),
-    const ProductsListScreen(), // Substituiu a posição dos clientes
+    const ProductsListScreen(),
+    const HistoryScreen(), // Adicionado na shell de navegação
   ];
 
   @override
@@ -30,6 +33,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
           NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Início'),
           NavigationDestination(icon: Icon(Icons.route_outlined), label: 'Rotas'),
           NavigationDestination(icon: Icon(Icons.bakery_dining_outlined), label: 'Produtos'),
+          NavigationDestination(icon: Icon(Icons.history_outlined), label: 'Histórico'), // Nova aba interativa
         ],
       ),
     );

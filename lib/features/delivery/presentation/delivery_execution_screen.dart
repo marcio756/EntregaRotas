@@ -1,15 +1,21 @@
 // Ficheiro: lib/features/delivery/presentation/delivery_execution_screen.dart
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import '../../../core/database/collections/route_collection.dart';
+import '../../../core/database/collections/route_stop_collection.dart';
 import '../../routes/providers/route_stop_provider.dart';
-import 'widgets/delivery_card.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'daily_summary_screen.dart';
-import 'delivery_map_screen.dart';
 import '../../../core/presentation/widgets/skeleton_loader.dart';
+import '../../../core/utils/geo_utils.dart';
+import '../../../core/utils/ui_utils.dart';
+import '../../routes/presentation/order_details_screen.dart';
+import 'widgets/route_bottom_sheet.dart';
 
 class DeliveryExecutionScreen extends ConsumerStatefulWidget {
   final DeliveryRoute activeRoute;
@@ -23,6 +29,10 @@ class DeliveryExecutionScreen extends ConsumerStatefulWidget {
 class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScreen> {
   Position? _currentLocation;
   bool _isLocating = true;
+  final MapController _mapController = MapController();
+  
+  // To avoid spamming Auto-Delivery SnackBar when standing still near an order
+  final Set<int> _ignoredGeofenceIds = {};
 
   @override
   void initState() {
@@ -38,40 +48,114 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-      if (mounted) setState(() => _isLocating = false);
-      return;
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) setState(() => _isLocating = false);
+        return;
+      }
     }
 
+    // OTIMIZAÇÃO: Transição imediata da UI sem tempos de bloqueio de GPS
+    final lastPosition = await Geolocator.getLastKnownPosition();
+    if (lastPosition != null && mounted) {
+      setState(() {
+        _currentLocation = lastPosition;
+        _isLocating = false;
+      });
+      _mapController.move(LatLng(lastPosition.latitude, lastPosition.longitude), 17.5);
+    }
+
+    // PERFORMANCE OPTIMIZATION: Adjusted distanceFilter and accuracy constraints to shield map from sensor jitter.
     Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high, 
+        distanceFilter: 8, // Higher threshold avoids refreshing on micro-movements or stationary device drift
+      ),
     ).listen((Position position) {
+      // DRIFT FILTER: Discard low accuracy readings or static sensor noise to avoid phantom driving simulation.
+      if (position.accuracy > 15.0) return;
+
+      if (_currentLocation != null) {
+        final deltaDistance = GeoUtils.calculateDistance(
+          _currentLocation!.latitude, _currentLocation!.longitude,
+          position.latitude, position.longitude,
+        );
+        // Ignore noise if the geographic displacement is insignificant (less than 4 meters real change)
+        if (deltaDistance < 4.0) return;
+      }
+
       if (mounted) {
         setState(() {
+          if (_currentLocation == null || lastPosition == null) {
+            _mapController.move(LatLng(position.latitude, position.longitude), 17.5);
+          }
           _currentLocation = position;
           _isLocating = false;
         });
+
+        // Background evaluation of precise geofencing triggers
+        _evaluateAutoDeliveryTrigger(position);
       }
     }).onError((error) {
       if (mounted) setState(() => _isLocating = false);
     });
   }
 
+  /// Triggers Optimistic UI and Haptic Feedback when GPS detects proximity < 25m
+  void _evaluateAutoDeliveryTrigger(Position position) {
+    final stops = ref.read(routeStopsProvider(widget.activeRoute.id));
+    final pendingStops = stops.where((s) => !s.isDelivered).toList();
+
+    for (var stop in pendingStops) {
+      if (_ignoredGeofenceIds.contains(stop.id)) continue;
+
+      final distance = GeoUtils.calculateDistance(
+        position.latitude, position.longitude,
+        stop.latitude, stop.longitude,
+      );
+
+      if (distance <= 25.0) {
+        _ignoredGeofenceIds.add(stop.id); // Prevent loop re-evaluations during session
+        HapticFeedback.lightImpact(); // Subtle premium physical response
+        
+        ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stop.id, true);
+        
+        UiUtils.showUndoToast(
+          context, 
+          '${stop.orderName} marcado como Entregue (Automático).', 
+          () {
+            _ignoredGeofenceIds.remove(stop.id);
+            ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stop.id, false);
+          }
+        );
+        break; // Only evaluate one per GPS tick to avoid overwhelming the user
+      }
+    }
+  }
+
   void _handleDeliveryComplete(int stopId, String orderName) {
     ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, true);
+    UiUtils.showUndoToast(context, '$orderName entregue com sucesso.', () {
+      ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, false);
+    });
+  }
 
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$orderName entregue com sucesso.'),
-        duration: const Duration(seconds: 5),
-        action: SnackBarAction(
-          label: 'DESFAZER',
-          textColor: Theme.of(context).colorScheme.primary,
-          onPressed: () {
-            ref.read(routeStopsProvider(widget.activeRoute.id).notifier).toggleDeliveryStatus(stopId, false);
-          },
-        ),
+  void _triggerDrillTransition(RouteStop stop) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 400),
+        pageBuilder: (context, animation, secondaryAnimation) => OrderDetailsScreen(stop: stop),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero)
+                  .animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+              child: child,
+            ),
+          );
+        },
       ),
     );
   }
@@ -82,157 +166,149 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     final stops = ref.watch(routeStopsProvider(widget.activeRoute.id));
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
 
-    Map<String, int> totalLoadByProduct = {};
-    for (var stop in stops) {
-      for (var item in stop.productsToDeliver) {
-        final parts = item.split('x ');
-        if (parts.length == 2) {
-          final qty = int.tryParse(parts[0]) ?? 0;
-          final name = parts[1].trim();
-          totalLoadByProduct[name] = (totalLoadByProduct[name] ?? 0) + qty;
-        }
-      }
+    if (!_isLocating && pendingStops.isEmpty && stops.isNotEmpty) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.check_circle_outline, size: 80, color: theme.colorScheme.secondary)
+                .animate().scale().fadeIn(),
+              const SizedBox(height: 16),
+              const Text('Todas as entregas concluídas!').animate().fadeIn().slideY(),
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                ),
+                onPressed: () => Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (context) => DailySummaryScreen(activeRoute: widget.activeRoute)),
+                ),
+                icon: const Icon(Icons.bar_chart),
+                label: const Text('VER RESUMO DO DIA', style: TextStyle(fontWeight: FontWeight.bold)),
+              )
+            ],
+          ),
+        ),
+      );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Rota em Curso', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            Text(widget.activeRoute.name, style: TextStyle(fontSize: 14, color: theme.colorScheme.primary)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.map_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => DeliveryMapScreen(activeRoute: widget.activeRoute),
+    final List<Marker> mapMarkers = pendingStops.map((stop) {
+      return Marker(
+        key: ValueKey(stop.id),
+        point: LatLng(stop.latitude, stop.longitude),
+        width: 80, 
+        height: 80,
+        alignment: Alignment.center, 
+        child: GestureDetector(
+          onTap: () => _triggerDrillTransition(stop),
+          behavior: HitTestBehavior.opaque, 
+          child: Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                bottom: 40,
+                child: Icon(
+                  Icons.location_on,
+                  color: theme.colorScheme.primary,
+                  size: 50,
+                  shadows: const [Shadow(blurRadius: 10.0, color: Colors.black, offset: Offset(2, 2))],
+                ).animate(onPlay: (controller) => controller.repeat()).shimmer(duration: 2.seconds),
               ),
-            ),
-          )
-        ],
-      ),
-      body: Column(
-        children: [
-          if (totalLoadByProduct.isNotEmpty)
-            Container(
-              width: double.infinity,
-              color: theme.colorScheme.surfaceContainerHighest,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Row(
-                      children: [
-                        Icon(Icons.inventory_2_outlined, size: 18, color: theme.colorScheme.primary),
-                        const SizedBox(width: 8),
-                        Text('Carga Total da Rota (${stops.length} pedidos):', 
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 44,
-                    child: ListView.separated(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      scrollDirection: Axis.horizontal,
-                      itemCount: totalLoadByProduct.keys.length,
-                      separatorBuilder: (context, index) => const SizedBox(width: 8),
-                      itemBuilder: (context, index) {
-                        String productName = totalLoadByProduct.keys.elementAt(index);
-                        int totalQty = totalLoadByProduct[productName]!;
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.5)),
-                          ),
-                          child: Row(
-                            children: [
-                              Text('$totalQty', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 18)),
-                              const SizedBox(width: 8),
-                              Text(productName, style: const TextStyle(fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-          const Divider(height: 1, thickness: 1, color: Color(0xFF2C2C2C)),
-
-          Expanded(
-            child: _isLocating 
-              ? ListView.builder(
-                  padding: const EdgeInsets.only(top: 16),
-                  itemCount: 4,
-                  itemBuilder: (context, index) => const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                    child: SkeletonLoader(height: 140),
-                  ),
-                )
-              : pendingStops.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.check_circle_outline, size: 80, color: theme.colorScheme.secondary)
-                          .animate().scale().fadeIn(),
-                        const SizedBox(height: 16),
-                        const Text('Todas as entregas concluídas!').animate().fadeIn().slideY(),
-                        const SizedBox(height: 32),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.colorScheme.primary,
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                          ),
-                          onPressed: () => Navigator.of(context).pushReplacement(
-                            MaterialPageRoute(
-                              builder: (context) => DailySummaryScreen(activeRoute: widget.activeRoute),
-                            ),
-                          ),
-                          icon: const Icon(Icons.bar_chart),
-                          label: const Text('VER RESUMO DO DIA', style: TextStyle(fontWeight: FontWeight.bold)),
-                        )
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.only(top: 12),
-                    itemCount: pendingStops.length,
-                    itemBuilder: (context, index) {
-                      final stop = pendingStops[index];
-
-                      bool isNear = false;
-                      if (_currentLocation != null) {
-                        // Calcula a distância diretamente com os dados embutidos na paragem
-                        final distance = Geolocator.distanceBetween(
-                          _currentLocation!.latitude, _currentLocation!.longitude,
-                          stop.latitude, stop.longitude,
-                        );
-                        isNear = distance <= 30.0;
-                      }
-
-                      return DeliveryCard(
-                        clientName: stop.orderName,
-                        address: stop.notes ?? 'Sem notas adicionais',
-                        productsSummary: stop.productsToDeliver.join(', '),
-                        isNear: isNear,
-                        onDelivered: () => _handleDeliveryComplete(stop.id, stop.orderName),
-                      );
-                    },
-                  ),
+            ],
           ),
+        ),
+      );
+    }).toList();
+
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        title: Text(widget.activeRoute.name, style: const TextStyle(shadows: [Shadow(blurRadius: 10, color: Colors.black)])),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: const MapOptions(
+              initialCenter: LatLng(39.3999, -8.2245),
+              initialZoom: 16.0,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+                userAgentPackageName: 'com.pao.rota_app',
+                maxNativeZoom: 20,
+                maxZoom: 22,
+                keepBuffer: 3, // Performance tweak: caches nearby tiles to eliminate network lag during motion
+              ),
+              if (_currentLocation != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: LatLng(_currentLocation!.latitude, _currentLocation!.longitude),
+                      width: 60,
+                      height: 60,
+                      alignment: Alignment.center,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.blueAccent.withValues(alpha: 0.3),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.blue, width: 2),
+                        ),
+                        child: const Icon(Icons.drive_eta, color: Colors.blueAccent, size: 28),
+                      ),
+                    ),
+                  ],
+                ),
+              MarkerClusterLayerWidget(
+                options: MarkerClusterLayerOptions(
+                  maxClusterRadius: 45,
+                  size: const Size(50, 50),
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.all(50),
+                  maxZoom: 20,
+                  markers: mapMarkers,
+                  builder: (context, markers) {
+                    return Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: theme.colorScheme.primary,
+                        border: Border.all(color: Colors.black, width: 3),
+                        boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black54, offset: Offset(0, 4))]
+                      ),
+                      child: Center(
+                        child: Text(
+                          markers.length.toString(),
+                          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          
+          if (_isLocating)
+            const SkeletonLoader(height: double.infinity, borderRadius: 0),
+            
+          if (!_isLocating && pendingStops.isNotEmpty)
+            RouteBottomSheet(
+              pendingStops: pendingStops,
+              currentLocation: _currentLocation,
+              onDeliveryComplete: _handleDeliveryComplete,
+              onStopTap: _triggerDrillTransition,
+              onProductQuantityAdjust: (stopId, prodIdx, isInc) {
+                ref.read(routeStopsProvider(widget.activeRoute.id).notifier)
+                   .adjustProductQuantity(stopId, prodIdx, isInc);
+              },
+            ),
         ],
       ),
     );
