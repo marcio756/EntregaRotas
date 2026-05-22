@@ -1,3 +1,4 @@
+// Ficheiro: lib/core/database/collections/route_stop_collection.dart
 import 'package:isar/isar.dart';
 import 'route_collection.dart';
 
@@ -37,4 +38,7 @@ class RouteStop {
   
   /// Estado da entrega
   bool isDelivered = false;
+
+  /// Permite desativar temporariamente o pedido sem o apagar da rota
+  bool isActive = true;
 }

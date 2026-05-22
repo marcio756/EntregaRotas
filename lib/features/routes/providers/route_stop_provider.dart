@@ -18,6 +18,9 @@ final routeLoadSummaryProvider = Provider.family<Map<String, int>, String>((ref,
   final Map<String, int> loadTotals = {};
 
   for (var stop in stops) {
+    // Ignora completamente pedidos que estejam desativados nesta rota
+    if (!stop.isActive) continue;
+
     for (var productStr in stop.productsToDeliver) {
       final parts = productStr.split('x ');
       if (parts.length >= 2) {
@@ -30,7 +33,6 @@ final routeLoadSummaryProvider = Provider.family<Map<String, int>, String>((ref,
         }
         
         // Mantemos a designação completa (incluindo a categoria) como chave de agregação
-        // Ex: "Cacete (Tostado)" em vez de apenas "Cacete"
         if (qty > 0) {
           loadTotals[pureProductInfo] = (loadTotals[pureProductInfo] ?? 0) + qty;
         }
@@ -86,7 +88,8 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
       ..localImagePath = imagePath
       ..stopOrder = state.length
       ..productsToDeliver = products
-      ..isDelivered = false;
+      ..isDelivered = false
+      ..isActive = true;
 
     await isar.writeTxn(() async {
       await isar.routeStops.put(newOrder);
@@ -132,6 +135,19 @@ class RouteStopNotifier extends StateNotifier<List<RouteStop>> {
     
     if (stop != null) {
       stop.isDelivered = status;
+      await isar.writeTxn(() async {
+        await isar.routeStops.put(stop);
+      });
+      await _loadStops(); 
+    }
+  }
+
+  Future<void> toggleActiveStatus(int stopId, bool status) async {
+    final isar = await isarService.db;
+    final stop = await isar.routeStops.get(stopId);
+    
+    if (stop != null) {
+      stop.isActive = status;
       await isar.writeTxn(() async {
         await isar.routeStops.put(stop);
       });

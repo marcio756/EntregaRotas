@@ -225,7 +225,9 @@ class _DeliveryMapScreenState extends ConsumerState<DeliveryMapScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final stops = ref.watch(routeStopsProvider(widget.sessionIds));
+    
+    // Filtro crucial para que o cluster do mapa represente apenas trabalhos ativos
+    final stops = ref.watch(routeStopsProvider(widget.sessionIds)).where((s) => s.isActive).toList();
 
     final List<Marker> clientMarkers = stops.map((stop) {
       return Marker(

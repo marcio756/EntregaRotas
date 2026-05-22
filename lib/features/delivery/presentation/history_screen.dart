@@ -1,36 +1,12 @@
 // Ficheiro: lib/features/delivery/presentation/history_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/services/history_service.dart';
 
-class HistoryScreen extends StatefulWidget {
+class HistoryScreen extends ConsumerWidget {
   const HistoryScreen({super.key});
 
-  @override
-  State<HistoryScreen> createState() => _HistoryScreenState();
-}
-
-class _HistoryScreenState extends State<HistoryScreen> {
-  final HistoryService _historyService = HistoryService();
-  List<Map<String, dynamic>> _historyLogs = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadHistory();
-  }
-
-  Future<void> _loadHistory() async {
-    final logs = await _historyService.fetchAllLogs();
-    if (mounted) {
-      setState(() {
-        _historyLogs = logs;
-        _isLoading = false;
-      });
-    }
-  }
-
-  void _viewDayDetails(Map<String, dynamic> log) {
+  void _viewDayDetails(BuildContext context, Map<String, dynamic> log) {
     final theme = Theme.of(context);
     final delivered = Map<String, int>.from(log['delivered'] ?? {});
     final notDelivered = Map<String, int>.from(log['notDelivered'] ?? {});
@@ -139,41 +115,47 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final historyAsyncValue = ref.watch(historyLogsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Histórico de Distribuição')),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _historyLogs.isEmpty
-              ? const Center(child: Text('Nenhum dia de trabalho arquivado.'))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _historyLogs.length,
-                  itemBuilder: (context, idx) {
-                    final log = _historyLogs[idx];
-                    
-                    final List<dynamic>? routesList = log['routeNames'] as List<dynamic>?;
-                    final String displayRoutes = routesList != null 
-                        ? routesList.map((e) => e.toString()).join(' + ') 
-                        : (log['routeName'] as String? ?? 'Desconhecida');
+      body: historyAsyncValue.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, stack) => Center(child: Text('Erro ao carregar histórico.', style: TextStyle(color: theme.colorScheme.error))),
+        data: (logs) {
+          if (logs.isEmpty) {
+            return const Center(child: Text('Nenhum dia de trabalho arquivado.'));
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: logs.length,
+            itemBuilder: (context, idx) {
+              final log = logs[idx];
+              
+              final List<dynamic>? routesList = log['routeNames'] as List<dynamic>?;
+              final String displayRoutes = routesList != null 
+                  ? routesList.map((e) => e.toString()).join(' + ') 
+                  : (log['routeName'] as String? ?? 'Desconhecida');
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-                          child: Icon(Icons.calendar_today_outlined, color: theme.colorScheme.primary, size: 20),
-                        ),
-                        title: Text(log['date'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                        subtitle: Text(displayRoutes, style: const TextStyle(color: Colors.grey)),
-                        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                        onTap: () => _viewDayDetails(log),
-                      ),
-                    );
-                  },
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
+                    child: Icon(Icons.calendar_today_outlined, color: theme.colorScheme.primary, size: 20),
+                  ),
+                  title: Text(log['date'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  subtitle: Text(displayRoutes, style: const TextStyle(color: Colors.grey)),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: () => _viewDayDetails(context, log),
                 ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }

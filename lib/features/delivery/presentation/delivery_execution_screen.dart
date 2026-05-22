@@ -108,7 +108,8 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   }
 
   void _evaluateAutoDeliveryTrigger(Position position) {
-    final stops = ref.read(routeStopsProvider(widget.sessionIds));
+    // Busca apenas as paragens ATIVAS antes de aplicar os cálculos de Geofencing
+    final stops = ref.read(routeStopsProvider(widget.sessionIds)).where((s) => s.isActive).toList();
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
 
     for (var stop in pendingStops) {
@@ -159,7 +160,9 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final stops = ref.watch(routeStopsProvider(widget.sessionIds));
+    
+    // Ignorar por completo os pedidos inativos durante a fase de condução
+    final stops = ref.watch(routeStopsProvider(widget.sessionIds)).where((s) => s.isActive).toList();
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
 
     if (!_isLocating && pendingStops.isEmpty && stops.isNotEmpty) {

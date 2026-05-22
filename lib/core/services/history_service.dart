@@ -2,6 +2,14 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+/// Global provider to reactively fetch and expose history logs across the application.
+/// Allows dynamic cache invalidation when a new delivery session is concluded.
+final historyLogsProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final service = HistoryService();
+  return await service.fetchAllLogs();
+});
 
 /// Handles localized file I/O for logging historical route performance summaries.
 /// Isolates logging architecture from Isar lifecycle to avoid schema compilation issues.

@@ -24,7 +24,9 @@ class DailySummaryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final stops = ref.watch(routeStopsProvider(sessionIds));
+    
+    // Ignora na totalidade os pedidos desativados para que não manchem o relatório financeiro
+    final stops = ref.watch(routeStopsProvider(sessionIds)).where((s) => s.isActive).toList();
     final products = ref.watch(productListProvider);
 
     int totalDeliveries = stops.where((s) => s.isDelivered).length;
@@ -89,6 +91,10 @@ class DailySummaryScreen extends ConsumerWidget {
       );
 
       await ref.read(routeStopsProvider(sessionIds).notifier).resetRouteCompletion();
+      
+      // INJEÇÃO ARQUITETURAL: Forçar a atualização reativa do histórico global 
+      // para que a View atualize mesmo estando escondida sob o IndexedStack.
+      ref.invalidate(historyLogsProvider);
 
       if (ctx.mounted) {
         ScaffoldMessenger.of(ctx).showSnackBar(

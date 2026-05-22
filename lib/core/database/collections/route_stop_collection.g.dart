@@ -17,48 +17,53 @@ const RouteStopSchema = CollectionSchema(
   name: r'RouteStop',
   id: -288160078318827968,
   properties: {
-    r'isDelivered': PropertySchema(
+    r'isActive': PropertySchema(
       id: 0,
+      name: r'isActive',
+      type: IsarType.bool,
+    ),
+    r'isDelivered': PropertySchema(
+      id: 1,
       name: r'isDelivered',
       type: IsarType.bool,
     ),
     r'latitude': PropertySchema(
-      id: 1,
+      id: 2,
       name: r'latitude',
       type: IsarType.double,
     ),
     r'localImagePath': PropertySchema(
-      id: 2,
+      id: 3,
       name: r'localImagePath',
       type: IsarType.string,
     ),
     r'locationCaptureMethod': PropertySchema(
-      id: 3,
+      id: 4,
       name: r'locationCaptureMethod',
       type: IsarType.string,
     ),
     r'longitude': PropertySchema(
-      id: 4,
+      id: 5,
       name: r'longitude',
       type: IsarType.double,
     ),
     r'notes': PropertySchema(
-      id: 5,
+      id: 6,
       name: r'notes',
       type: IsarType.string,
     ),
     r'orderName': PropertySchema(
-      id: 6,
+      id: 7,
       name: r'orderName',
       type: IsarType.string,
     ),
     r'productsToDeliver': PropertySchema(
-      id: 7,
+      id: 8,
       name: r'productsToDeliver',
       type: IsarType.stringList,
     ),
     r'stopOrder': PropertySchema(
-      id: 8,
+      id: 9,
       name: r'stopOrder',
       type: IsarType.long,
     )
@@ -125,15 +130,16 @@ void _routeStopSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeBool(offsets[0], object.isDelivered);
-  writer.writeDouble(offsets[1], object.latitude);
-  writer.writeString(offsets[2], object.localImagePath);
-  writer.writeString(offsets[3], object.locationCaptureMethod);
-  writer.writeDouble(offsets[4], object.longitude);
-  writer.writeString(offsets[5], object.notes);
-  writer.writeString(offsets[6], object.orderName);
-  writer.writeStringList(offsets[7], object.productsToDeliver);
-  writer.writeLong(offsets[8], object.stopOrder);
+  writer.writeBool(offsets[0], object.isActive);
+  writer.writeBool(offsets[1], object.isDelivered);
+  writer.writeDouble(offsets[2], object.latitude);
+  writer.writeString(offsets[3], object.localImagePath);
+  writer.writeString(offsets[4], object.locationCaptureMethod);
+  writer.writeDouble(offsets[5], object.longitude);
+  writer.writeString(offsets[6], object.notes);
+  writer.writeString(offsets[7], object.orderName);
+  writer.writeStringList(offsets[8], object.productsToDeliver);
+  writer.writeLong(offsets[9], object.stopOrder);
 }
 
 RouteStop _routeStopDeserialize(
@@ -144,15 +150,16 @@ RouteStop _routeStopDeserialize(
 ) {
   final object = RouteStop();
   object.id = id;
-  object.isDelivered = reader.readBool(offsets[0]);
-  object.latitude = reader.readDouble(offsets[1]);
-  object.localImagePath = reader.readStringOrNull(offsets[2]);
-  object.locationCaptureMethod = reader.readStringOrNull(offsets[3]);
-  object.longitude = reader.readDouble(offsets[4]);
-  object.notes = reader.readStringOrNull(offsets[5]);
-  object.orderName = reader.readString(offsets[6]);
-  object.productsToDeliver = reader.readStringList(offsets[7]) ?? [];
-  object.stopOrder = reader.readLong(offsets[8]);
+  object.isActive = reader.readBool(offsets[0]);
+  object.isDelivered = reader.readBool(offsets[1]);
+  object.latitude = reader.readDouble(offsets[2]);
+  object.localImagePath = reader.readStringOrNull(offsets[3]);
+  object.locationCaptureMethod = reader.readStringOrNull(offsets[4]);
+  object.longitude = reader.readDouble(offsets[5]);
+  object.notes = reader.readStringOrNull(offsets[6]);
+  object.orderName = reader.readString(offsets[7]);
+  object.productsToDeliver = reader.readStringList(offsets[8]) ?? [];
+  object.stopOrder = reader.readLong(offsets[9]);
   return object;
 }
 
@@ -166,20 +173,22 @@ P _routeStopDeserializeProp<P>(
     case 0:
       return (reader.readBool(offset)) as P;
     case 1:
-      return (reader.readDouble(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 2:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readDouble(offset)) as P;
     case 3:
       return (reader.readStringOrNull(offset)) as P;
     case 4:
-      return (reader.readDouble(offset)) as P;
-    case 5:
       return (reader.readStringOrNull(offset)) as P;
+    case 5:
+      return (reader.readDouble(offset)) as P;
     case 6:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 7:
-      return (reader.readStringList(offset) ?? []) as P;
+      return (reader.readString(offset)) as P;
     case 8:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 9:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -327,6 +336,16 @@ extension RouteStopQueryFilter
         includeLower: includeLower,
         upper: upper,
         includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<RouteStop, RouteStop, QAfterFilterCondition> isActiveEqualTo(
+      bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isActive',
+        value: value,
       ));
     });
   }
@@ -1355,6 +1374,18 @@ extension RouteStopQueryLinks
 }
 
 extension RouteStopQuerySortBy on QueryBuilder<RouteStop, RouteStop, QSortBy> {
+  QueryBuilder<RouteStop, RouteStop, QAfterSortBy> sortByIsActive() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isActive', Sort.asc);
+    });
+  }
+
+  QueryBuilder<RouteStop, RouteStop, QAfterSortBy> sortByIsActiveDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isActive', Sort.desc);
+    });
+  }
+
   QueryBuilder<RouteStop, RouteStop, QAfterSortBy> sortByIsDelivered() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isDelivered', Sort.asc);
@@ -1468,6 +1499,18 @@ extension RouteStopQuerySortThenBy
     });
   }
 
+  QueryBuilder<RouteStop, RouteStop, QAfterSortBy> thenByIsActive() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isActive', Sort.asc);
+    });
+  }
+
+  QueryBuilder<RouteStop, RouteStop, QAfterSortBy> thenByIsActiveDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isActive', Sort.desc);
+    });
+  }
+
   QueryBuilder<RouteStop, RouteStop, QAfterSortBy> thenByIsDelivered() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isDelivered', Sort.asc);
@@ -1569,6 +1612,12 @@ extension RouteStopQuerySortThenBy
 
 extension RouteStopQueryWhereDistinct
     on QueryBuilder<RouteStop, RouteStop, QDistinct> {
+  QueryBuilder<RouteStop, RouteStop, QDistinct> distinctByIsActive() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isActive');
+    });
+  }
+
   QueryBuilder<RouteStop, RouteStop, QDistinct> distinctByIsDelivered() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'isDelivered');
@@ -1635,6 +1684,12 @@ extension RouteStopQueryProperty
   QueryBuilder<RouteStop, int, QQueryOperations> idProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'id');
+    });
+  }
+
+  QueryBuilder<RouteStop, bool, QQueryOperations> isActiveProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isActive');
     });
   }
 
