@@ -92,7 +92,6 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
               pureName = rawName.substring(0, firstParen).trim();
               extractedCategory = rawName.substring(firstParen + 2, lastParen);
               
-              // Evita falhas no match onde a string tem (Geral) mas o Isar tem categoria nula
               if (extractedCategory == 'Geral') {
                 extractedCategory = null;
               }
@@ -100,7 +99,6 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
           }
 
           try {
-            // CORREÇÃO: Match rigoroso de Nome + Categoria
             final targetProduct = catalog.firstWhere((p) {
               bool nameMatches = p.name == pureName;
               bool catMatches = p.category == extractedCategory || (p.category == '' && extractedCategory == null);
@@ -110,9 +108,8 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
             _addedProducts.add(targetProduct);
             _selectedQuantities[targetProduct.id] = qty;
           } catch (_) {
-            // Se o produto foi apagado do catálogo, cria uma versão runtime para não quebrar a edição
             int safeId = pureName.hashCode ^ (extractedCategory?.hashCode ?? 0);
-            if (safeId < 0) safeId = -safeId; // Garante ID positivo para não chocar com a UI
+            if (safeId < 0) safeId = -safeId; 
             
             final runtimeProduct = Product()
               ..id = safeId
@@ -146,6 +143,30 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
         });
       }
     }
+  }
+
+  void _copyZoneFromLastOrder() {
+    final currentStops = ref.read(routeStopsProvider(widget.activeRoute.id.toString()));
+    if (currentStops.isNotEmpty) {
+      // Procura do fim para o início o último pedido que tenha uma zona definida
+      final lastStopWithZone = currentStops.reversed.firstWhere(
+        (s) => s.notes != null && s.notes!.startsWith('[ZONE:'),
+        orElse: () => RouteStop()..notes = null,
+      );
+
+      if (lastStopWithZone.notes != null) {
+        final rawNotes = lastStopWithZone.notes!;
+        final closeIdx = rawNotes.indexOf(']');
+        if (closeIdx != -1) {
+          setState(() {
+            _zoneController.text = rawNotes.substring(6, closeIdx);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Zona copiada do último registo na rota.')));
+          return;
+        }
+      }
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nenhuma zona encontrada nos pedidos anteriores.')));
   }
 
   @override
@@ -347,6 +368,13 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
                   labelText: 'Sub-rota / Zona (Opcional)',
                   hintText: 'ex: Paraíso, S. Cristóvão',
                   prefixIcon: Icon(Icons.map_outlined, color: theme.colorScheme.primary),
+                  // BOTÃO DE CÓPIA ADICIONADO AQUI
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.content_copy),
+                    color: theme.colorScheme.primary,
+                    tooltip: 'Copiar zona do último pedido',
+                    onPressed: _copyZoneFromLastOrder,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),

@@ -40,10 +40,7 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   bool _isLocating = true;
   final MapController _mapController = MapController();
   
-  // Evita re-acender o trigger se continuarmos parados em frente à casa.
   final Set<int> _ignoredGeofenceIds = {};
-  
-  // Bloqueio que evita instanciar vários Dialogs em simultâneo
   bool _isProximityDialogOpen = false;
 
   @override
@@ -117,21 +114,18 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     final stops = ref.read(routeStopsProvider(widget.sessionIds)).where((s) => s.isActive).toList();
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
 
-    // 1. Lógica de "Reset" para que um cartão descartado possa voltar se o condutor sair e voltar (40 metros)
     for (var id in _ignoredGeofenceIds.toList()) {
       try {
         final stop = pendingStops.firstWhere((s) => s.id == id);
         final distance = GeoUtils.calculateDistance(position.latitude, position.longitude, stop.latitude, stop.longitude);
         if (distance > 40.0) {
-          _ignoredGeofenceIds.remove(id); // Limpa o geofence guardado
+          _ignoredGeofenceIds.remove(id); 
         }
       } catch (_) {
-        // Significa que entretanto o pedido já foi processado ou marcado
         _ignoredGeofenceIds.remove(id);
       }
     }
 
-    // 2. Procurar todos os pedidos que ficaram num raio de 25 metros subitamente
     final newlyNearby = <RouteStop>[];
 
     for (var stop in pendingStops) {
@@ -145,15 +139,14 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
       }
     }
 
-    // 3. Se existirem pedidos próximos, invocamos o Morphing Card Dialog
     if (newlyNearby.isNotEmpty) {
       if (!_isProximityDialogOpen) {
         _isProximityDialogOpen = true;
-        HapticFeedback.heavyImpact(); // Vibração forte para alertar a entrega obrigatória
+        HapticFeedback.heavyImpact(); 
         
         await showDialog(
           context: context,
-          barrierDismissible: false, // Obriga o utilizador a clicar na UI dos Cards
+          barrierDismissible: false, 
           builder: (context) => ProximityDeliveryDialog(
             nearbyStops: newlyNearby,
             sessionIds: widget.sessionIds,
@@ -162,8 +155,6 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
         
         _isProximityDialogOpen = false;
       } else {
-        // Se a Dialog já estiver aberta e apanharmos outro ponto, removemos do ignore 
-        // para que volte a bater assim que a atual for concluída.
         for (var s in newlyNearby) {
           _ignoredGeofenceIds.remove(s.id);
         }
@@ -171,11 +162,17 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     }
   }
 
-  void _handleDeliveryComplete(int stopId, String orderName) {
-    ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stopId, true);
-    UiUtils.showUndoToast(context, '$orderName entregue com sucesso.', () {
-      ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stopId, false);
-    });
+  // ATUALIZAÇÃO DA LÓGICA DE TOGGLE
+  void _handleDeliveryToggle(int stopId, bool status) {
+    ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stopId, status);
+    
+    // Mostramos o toast apenas se o condutor o marcou como entregue
+    if (status) {
+      final stop = ref.read(routeStopsProvider(widget.sessionIds)).firstWhere((s) => s.id == stopId);
+      UiUtils.showUndoToast(context, '${stop.orderName} entregue com sucesso.', () {
+        ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stopId, false);
+      });
+    }
   }
 
   void _triggerDrillTransition(RouteStop stop) {
@@ -197,10 +194,12 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
-    final stops = ref.watch(routeStopsProvider(widget.sessionIds)).where((s) => s.isActive).toList();
-    final pendingStops = stops.where((s) => !s.isDelivered).toList();
+    // Mudança Crítica: A Bottom Sheet agora requer todos os Stops, mas mantemos o pending aqui apenas
+    // para a vista de conclusão do dia inteira ou dos markers do mapa.
+    final allActiveStops = ref.watch(routeStopsProvider(widget.sessionIds)).where((s) => s.isActive).toList();
+    final pendingStops = allActiveStops.where((s) => !s.isDelivered).toList();
 
-    if (!_isLocating && pendingStops.isEmpty && stops.isNotEmpty) {
+    if (!_isLocating && pendingStops.isEmpty && allActiveStops.isNotEmpty) {
       return Scaffold(
         body: Center(
           child: Column(
@@ -328,11 +327,11 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
           
           if (_isLocating) const SkeletonLoader(height: double.infinity, borderRadius: 0),
             
-          if (!_isLocating && pendingStops.isNotEmpty)
+          if (!_isLocating && allActiveStops.isNotEmpty)
             RouteBottomSheet(
-              pendingStops: pendingStops,
+              allStops: allActiveStops, // Injeção alterada para a Bottom Sheet lidar com o histórico
               currentLocation: _currentLocation,
-              onDeliveryComplete: _handleDeliveryComplete,
+              onDeliveryToggle: _handleDeliveryToggle, // Nova assinatura de Callback
               onStopTap: _triggerDrillTransition,
               onProductQuantityAdjust: (stopId, prodIdx, isInc) {
                 ref.read(routeStopsProvider(widget.sessionIds).notifier).adjustProductQuantity(stopId, prodIdx, isInc);
