@@ -17,6 +17,7 @@ import '../../../core/utils/geo_utils.dart';
 import '../../../core/utils/ui_utils.dart';
 import '../../routes/presentation/order_details_screen.dart';
 import 'widgets/route_bottom_sheet.dart';
+import 'widgets/proximity_delivery_dialog.dart';
 
 class DeliveryExecutionScreen extends ConsumerStatefulWidget {
   final List<DeliveryRoute> activeRoutes;
@@ -38,7 +39,12 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   Position? _currentLocation;
   bool _isLocating = true;
   final MapController _mapController = MapController();
+  
+  // Evita re-acender o trigger se continuarmos parados em frente à casa.
   final Set<int> _ignoredGeofenceIds = {};
+  
+  // Bloqueio que evita instanciar vários Dialogs em simultâneo
+  bool _isProximityDialogOpen = false;
 
   @override
   void initState() {
@@ -107,10 +113,26 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
     });
   }
 
-  void _evaluateAutoDeliveryTrigger(Position position) {
-    // Busca apenas as paragens ATIVAS antes de aplicar os cálculos de Geofencing
+  void _evaluateAutoDeliveryTrigger(Position position) async {
     final stops = ref.read(routeStopsProvider(widget.sessionIds)).where((s) => s.isActive).toList();
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
+
+    // 1. Lógica de "Reset" para que um cartão descartado possa voltar se o condutor sair e voltar (40 metros)
+    for (var id in _ignoredGeofenceIds.toList()) {
+      try {
+        final stop = pendingStops.firstWhere((s) => s.id == id);
+        final distance = GeoUtils.calculateDistance(position.latitude, position.longitude, stop.latitude, stop.longitude);
+        if (distance > 40.0) {
+          _ignoredGeofenceIds.remove(id); // Limpa o geofence guardado
+        }
+      } catch (_) {
+        // Significa que entretanto o pedido já foi processado ou marcado
+        _ignoredGeofenceIds.remove(id);
+      }
+    }
+
+    // 2. Procurar todos os pedidos que ficaram num raio de 25 metros subitamente
+    final newlyNearby = <RouteStop>[];
 
     for (var stop in pendingStops) {
       if (_ignoredGeofenceIds.contains(stop.id)) continue;
@@ -119,18 +141,32 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
 
       if (distance <= 25.0) {
         _ignoredGeofenceIds.add(stop.id);
-        HapticFeedback.lightImpact();
+        newlyNearby.add(stop);
+      }
+    }
+
+    // 3. Se existirem pedidos próximos, invocamos o Morphing Card Dialog
+    if (newlyNearby.isNotEmpty) {
+      if (!_isProximityDialogOpen) {
+        _isProximityDialogOpen = true;
+        HapticFeedback.heavyImpact(); // Vibração forte para alertar a entrega obrigatória
         
-        ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stop.id, true);
-        
-        UiUtils.showUndoToast(
-          context, '${stop.orderName} marcado como Entregue (Automático).', 
-          () {
-            _ignoredGeofenceIds.remove(stop.id);
-            ref.read(routeStopsProvider(widget.sessionIds).notifier).toggleDeliveryStatus(stop.id, false);
-          }
+        await showDialog(
+          context: context,
+          barrierDismissible: false, // Obriga o utilizador a clicar na UI dos Cards
+          builder: (context) => ProximityDeliveryDialog(
+            nearbyStops: newlyNearby,
+            sessionIds: widget.sessionIds,
+          ),
         );
-        break;
+        
+        _isProximityDialogOpen = false;
+      } else {
+        // Se a Dialog já estiver aberta e apanharmos outro ponto, removemos do ignore 
+        // para que volte a bater assim que a atual for concluída.
+        for (var s in newlyNearby) {
+          _ignoredGeofenceIds.remove(s.id);
+        }
       }
     }
   }
@@ -161,7 +197,6 @@ class _DeliveryExecutionScreenState extends ConsumerState<DeliveryExecutionScree
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
-    // Ignorar por completo os pedidos inativos durante a fase de condução
     final stops = ref.watch(routeStopsProvider(widget.sessionIds)).where((s) => s.isActive).toList();
     final pendingStops = stops.where((s) => !s.isDelivered).toList();
 

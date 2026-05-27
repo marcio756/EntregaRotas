@@ -5,9 +5,7 @@ import '../../../../core/database/collections/route_stop_collection.dart';
 import '../../../../core/utils/geo_utils.dart';
 import 'delivery_card.dart';
 
-/// Abstraction of the Map-First Bottom Sheet list structure.
-/// Maintains the parent screen highly readable and manages Continuity Transitions naturally via DraggableScrollableSheet.
-class RouteBottomSheet extends StatelessWidget {
+class RouteBottomSheet extends StatefulWidget {
   final List<RouteStop> pendingStops;
   final Position? currentLocation;
   final Function(int, String) onDeliveryComplete;
@@ -23,10 +21,32 @@ class RouteBottomSheet extends StatelessWidget {
     required this.onProductQuantityAdjust,
   });
 
-  /// Dynamically computes the consolidated breakdown of all missing items from the remaining route load.
-  Map<String, int> _calculateRemainingTotals() {
+  @override
+  State<RouteBottomSheet> createState() => _RouteBottomSheetState();
+}
+
+class _RouteBottomSheetState extends State<RouteBottomSheet> {
+  String? _selectedZone;
+
+  String? _extractZone(String? notes) {
+    if (notes != null && notes.startsWith('[ZONE:')) {
+      final closeIdx = notes.indexOf(']');
+      if (closeIdx != -1) return notes.substring(6, closeIdx);
+    }
+    return null;
+  }
+
+  String _cleanNotes(String? notes) {
+    if (notes != null && notes.startsWith('[ZONE:')) {
+      final closeIdx = notes.indexOf(']');
+      if (closeIdx != -1) return notes.substring(closeIdx + 1).trim();
+    }
+    return notes ?? 'Sem notas';
+  }
+
+  Map<String, int> _calculateRemainingTotals(List<RouteStop> stopsToCalculate) {
     final Map<String, int> totals = {};
-    for (var stop in pendingStops) {
+    for (var stop in stopsToCalculate) {
       for (var productStr in stop.productsToDeliver) {
         final displayStr = productStr.split(' | orig: ')[0];
         final parts = displayStr.split('x ');
@@ -40,11 +60,9 @@ class RouteBottomSheet extends StatelessWidget {
     return totals;
   }
 
-  /// Calculates the absolute mathematical sum of all physical product units 
-  /// that are still pending to be delivered across all remaining stops.
-  int _calculateTotalItemsCount() {
+  int _calculateTotalItemsCount(List<RouteStop> stopsToCalculate) {
     int totalUnitCount = 0;
-    for (var stop in pendingStops) {
+    for (var stop in stopsToCalculate) {
       for (var productStr in stop.productsToDeliver) {
         final displayStr = productStr.split(' | orig: ')[0];
         final parts = displayStr.split('x ');
@@ -60,13 +78,29 @@ class RouteBottomSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final remainingProducts = _calculateRemainingTotals();
-    final totalItemsPending = _calculateTotalItemsCount();
+    
+    // Obter todas as zonas únicas disponíveis
+    final availableZones = widget.pendingStops
+        .map((s) => _extractZone(s.notes))
+        .where((z) => z != null && z.isNotEmpty)
+        .cast<String>()
+        .toSet()
+        .toList();
+
+    // Filtrar a lista visual consoante a seleção
+    final displayedStops = widget.pendingStops.where((s) {
+      if (_selectedZone == null) return true;
+      return _extractZone(s.notes) == _selectedZone;
+    }).toList();
+
+    // Os totais agora refletem inteligentemente a Zona que tens selecionada
+    final remainingProducts = _calculateRemainingTotals(displayedStops);
+    final totalItemsPending = _calculateTotalItemsCount(displayedStops);
     
     return DraggableScrollableSheet(
-      initialChildSize: 0.25,
+      initialChildSize: 0.35,
       minChildSize: 0.15,
-      maxChildSize: 0.6,
+      maxChildSize: 0.85,
       builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(
@@ -90,9 +124,48 @@ class RouteBottomSheet extends StatelessWidget {
                   ),
                 ),
               ),
+              
+              // Menu Horizontal de Navegação Dinâmica pelas Zonas
+              if (availableZones.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 50,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Todas', style: TextStyle(fontWeight: FontWeight.bold)),
+                          selected: _selectedZone == null,
+                          onSelected: (selected) {
+                            if (selected) setState(() => _selectedZone = null);
+                          },
+                          selectedColor: theme.colorScheme.primary,
+                          labelStyle: TextStyle(color: _selectedZone == null ? Colors.black : Colors.white),
+                        ),
+                        const SizedBox(width: 8),
+                        ...availableZones.map((zone) => Padding(
+                          padding: const EdgeInsets.only(right: 8.0),
+                          child: ChoiceChip(
+                            label: Text(zone),
+                            selected: _selectedZone == zone,
+                            onSelected: (selected) {
+                              setState(() => _selectedZone = selected ? zone : null);
+                            },
+                            selectedColor: theme.colorScheme.primary.withValues(alpha: 0.3),
+                            side: BorderSide(
+                              color: _selectedZone == zone ? theme.colorScheme.primary : const Color(0xFF333333)
+                            ),
+                          ),
+                        )),
+                      ],
+                    ),
+                  ),
+                ),
+
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -101,12 +174,11 @@ class RouteBottomSheet extends StatelessWidget {
                           Icon(Icons.format_list_bulleted, color: theme.colorScheme.primary),
                           const SizedBox(width: 12),
                           Text(
-                            'Próximas Entregas (${pendingStops.length})', 
+                            _selectedZone != null ? 'Falta em $_selectedZone (${displayedStops.length})' : 'Próximas Entregas (${displayedStops.length})', 
                             style: theme.textTheme.titleLarge
                           ),
                         ],
                       ),
-                      // Premium counter badge to display the aggregate sum of all bread units left
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
@@ -127,7 +199,7 @@ class RouteBottomSheet extends StatelessWidget {
                   ),
                 ),
               ),
-              // Dynamic widget block representing the aggregated items summary to clear the route workload.
+
               if (remainingProducts.isNotEmpty)
                 SliverToBoxAdapter(
                   child: Container(
@@ -141,11 +213,14 @@ class RouteBottomSheet extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
+                        Row(
                           children: [
-                            Icon(Icons.analytics_outlined, size: 18, color: Colors.grey),
-                            SizedBox(width: 8),
-                            Text('Carga Total em Falta para Acabar:', style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)),
+                            const Icon(Icons.analytics_outlined, size: 18, color: Colors.grey),
+                            const SizedBox(width: 8),
+                            Text(
+                              _selectedZone != null ? 'Carga Total Restante (Nesta Zona):' : 'Carga Total Restante na Rota:', 
+                              style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)
+                            ),
                           ],
                         ),
                         const SizedBox(height: 10),
@@ -169,14 +244,15 @@ class RouteBottomSheet extends StatelessWidget {
                     ),
                   ),
                 ),
+
               SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
-                    final stop = pendingStops[index];
+                    final stop = displayedStops[index];
                     bool isNear = false;
-                    if (currentLocation != null) {
+                    if (widget.currentLocation != null) {
                       final distance = GeoUtils.calculateDistance(
-                        currentLocation!.latitude, currentLocation!.longitude,
+                        widget.currentLocation!.latitude, widget.currentLocation!.longitude,
                         stop.latitude, stop.longitude,
                       );
                       isNear = distance <= 30.0;
@@ -185,22 +261,20 @@ class RouteBottomSheet extends StatelessWidget {
                     return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
                       child: GestureDetector(
-                        onTap: () => onStopTap(stop),
+                        onTap: () => widget.onStopTap(stop),
                         child: DeliveryCard(
                           clientName: stop.orderName,
-                          address: stop.notes ?? 'Sem notas',
+                          address: _cleanNotes(stop.notes), // Remove a tag da zona da UI do cartão
                           products: stop.productsToDeliver,
                           isNear: isNear,
                           imagePath: stop.localImagePath,
-                          onDelivered: () => onDeliveryComplete(stop.id, stop.orderName),
-                          onQuantityAdjust: (prodIdx, isInc) => onProductQuantityAdjust(stop.id, prodIdx, isInc),
+                          onDelivered: () => widget.onDeliveryComplete(stop.id, stop.orderName),
+                          onQuantityAdjust: (prodIdx, isInc) => widget.onProductQuantityAdjust(stop.id, prodIdx, isInc),
                         ),
                       ),
                     );
                   },
-                  // ARCHITECTURE CORRECTION: Removed artificial maximum list constraint of 5 items.
-                  // For a real-world work delivery mapping tool, hiding upcoming elements diminishes planning visibility.
-                  childCount: pendingStops.length,
+                  childCount: displayedStops.length,
                 ),
               ),
             ],

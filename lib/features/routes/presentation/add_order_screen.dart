@@ -28,6 +28,7 @@ class AddOrderScreen extends ConsumerStatefulWidget {
 class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+  final _zoneController = TextEditingController();
   final _notesController = TextEditingController();
   
   LatLng? _capturedLocation;
@@ -51,7 +52,20 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
   void _populateFieldsIfEditing() {
     if (widget.orderToEdit != null) {
       _nameController.text = widget.orderToEdit!.orderName;
-      _notesController.text = widget.orderToEdit!.notes ?? '';
+      
+      String rawNotes = widget.orderToEdit!.notes ?? '';
+      if (rawNotes.startsWith('[ZONE:')) {
+        final closeIdx = rawNotes.indexOf(']');
+        if (closeIdx != -1) {
+          _zoneController.text = rawNotes.substring(6, closeIdx);
+          _notesController.text = rawNotes.substring(closeIdx + 1).trim();
+        } else {
+          _notesController.text = rawNotes;
+        }
+      } else {
+        _notesController.text = rawNotes;
+      }
+
       _capturedLocation = LatLng(widget.orderToEdit!.latitude, widget.orderToEdit!.longitude);
       _captureMethod = widget.orderToEdit!.locationCaptureMethod ?? 'INTERACTIVE_MAP';
       
@@ -61,28 +75,49 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
 
       final catalog = ref.read(productListProvider);
       for (var summary in widget.orderToEdit!.productsToDeliver) {
-        final parts = summary.split('x ');
-        if (parts.length == 2) {
+        final cleanSummary = summary.split(' | orig: ')[0].trim();
+        final parts = cleanSummary.split('x ');
+        
+        if (parts.length >= 2) {
           final qty = int.tryParse(parts[0]) ?? 0;
+          final rawName = parts[1].trim(); 
           
-          final rawName = parts[1].trim(); // ex: "Pão (Centeio)"
-          final pureName = rawName.split(' (')[0].trim(); // ex: "Pão"
-          
-          // Extrair a categoria isolada para que o Produto em Runtime não fique vazio
+          String pureName = rawName;
           String? extractedCategory;
+
           if (rawName.contains(' (')) {
-            extractedCategory = rawName.substring(rawName.indexOf(' (') + 2, rawName.length - 1);
+            final firstParen = rawName.indexOf(' (');
+            final lastParen = rawName.lastIndexOf(')');
+            if (lastParen > firstParen) {
+              pureName = rawName.substring(0, firstParen).trim();
+              extractedCategory = rawName.substring(firstParen + 2, lastParen);
+              
+              // Evita falhas no match onde a string tem (Geral) mas o Isar tem categoria nula
+              if (extractedCategory == 'Geral') {
+                extractedCategory = null;
+              }
+            }
           }
 
           try {
-            final targetProduct = catalog.firstWhere((p) => p.name == pureName);
+            // CORREÇÃO: Match rigoroso de Nome + Categoria
+            final targetProduct = catalog.firstWhere((p) {
+              bool nameMatches = p.name == pureName;
+              bool catMatches = p.category == extractedCategory || (p.category == '' && extractedCategory == null);
+              return nameMatches && catMatches;
+            });
+            
             _addedProducts.add(targetProduct);
             _selectedQuantities[targetProduct.id] = qty;
           } catch (_) {
+            // Se o produto foi apagado do catálogo, cria uma versão runtime para não quebrar a edição
+            int safeId = pureName.hashCode ^ (extractedCategory?.hashCode ?? 0);
+            if (safeId < 0) safeId = -safeId; // Garante ID positivo para não chocar com a UI
+            
             final runtimeProduct = Product()
-              ..id = pureName.hashCode
+              ..id = safeId
               ..name = pureName
-              ..category = extractedCategory;
+              ..category = extractedCategory ?? 'Geral';
               
             _addedProducts.add(runtimeProduct);
             _selectedQuantities[runtimeProduct.id] = qty;
@@ -100,6 +135,14 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
         setState(() {
           _capturedLocation = LatLng(lastStop.latitude, lastStop.longitude);
           _captureMethod = 'HERDADO_DO_ULTIMO';
+          
+          String rawNotes = lastStop.notes ?? '';
+          if (rawNotes.startsWith('[ZONE:')) {
+            final closeIdx = rawNotes.indexOf(']');
+            if (closeIdx != -1) {
+              _zoneController.text = rawNotes.substring(6, closeIdx);
+            }
+          }
         });
       }
     }
@@ -108,6 +151,7 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _zoneController.dispose();
     _notesController.dispose();
     super.dispose();
   }
@@ -231,11 +275,17 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
 
       final orderName = _nameController.text.isNotEmpty ? _nameController.text.trim() : 'Pedido #${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
 
+      String finalNotes = _notesController.text.trim();
+      String zone = _zoneController.text.trim();
+      if (zone.isNotEmpty) {
+        finalNotes = '[ZONE:$zone] $finalNotes';
+      }
+
       if (widget.orderToEdit != null) {
         await ref.read(routeStopsProvider(widget.activeRoute.id.toString()).notifier).updateOrderInRoute(
           stopId: widget.orderToEdit!.id,
           orderName: orderName,
-          notes: _notesController.text.trim(),
+          notes: finalNotes,
           latitude: _capturedLocation!.latitude,
           longitude: _capturedLocation!.longitude,
           captureMethod: _captureMethod,
@@ -246,7 +296,7 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
         await ref.read(routeStopsProvider(widget.activeRoute.id.toString()).notifier).addOrderToRoute(
           route: widget.activeRoute,
           orderName: orderName,
-          notes: _notesController.text.trim(),
+          notes: finalNotes,
           latitude: _capturedLocation!.latitude,
           longitude: _capturedLocation!.longitude,
           captureMethod: _captureMethod,
@@ -278,7 +328,7 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
     final isEditing = widget.orderToEdit != null;
 
     return Scaffold(
-      appBar: AppBar(title: Text(isEditing ? 'Editar Detalhes do Pedido' : 'Adicionar Pedido à Rota')),
+      appBar: AppBar(title: Text(isEditing ? 'Editar Detalhes' : 'Adicionar à Rota')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Form(
@@ -288,7 +338,16 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
             children: [
               TextFormField(
                 controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Identificador (Opcional, ex: Porta B)'),
+                decoration: const InputDecoration(labelText: 'Identificador (ex: Sr. João)'),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _zoneController,
+                decoration: InputDecoration(
+                  labelText: 'Sub-rota / Zona (Opcional)',
+                  hintText: 'ex: Paraíso, S. Cristóvão',
+                  prefixIcon: Icon(Icons.map_outlined, color: theme.colorScheme.primary),
+                ),
               ),
               const SizedBox(height: 16),
               TextFormField(
@@ -379,7 +438,7 @@ class _AddOrderScreenState extends ConsumerState<AddOrderScreen> {
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(prod.name),
-                  subtitle: Text(prod.category ?? 'Geral', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)), // Nova inclusão visual da Categoria
+                  subtitle: Text(prod.category ?? 'Geral', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)), 
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

@@ -8,7 +8,6 @@ import 'add_order_screen.dart';
 import 'route_load_sheet_screen.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
-/// Displays and manages the specific orders (stops) allocated to a Delivery Route.
 class RouteDetailsScreen extends ConsumerStatefulWidget {
   final DeliveryRoute route;
 
@@ -48,12 +47,11 @@ class _RouteDetailsScreenState extends ConsumerState<RouteDetailsScreen> {
     );
   }
 
-  /// Calcula a soma acumulada de todos os produtos ativos desde o início até ao índice selecionado.
   Map<String, int> _getCumulativeProducts(List<RouteStop> stops, int endIndex) {
     final Map<String, int> totals = {};
     for (int i = 0; i <= endIndex; i++) {
       final stop = stops[i];
-      if (!stop.isActive) continue; // Ignora inativos no cálculo da carga
+      if (!stop.isActive) continue; 
       
       for (var productStr in stop.productsToDeliver) {
         final parts = productStr.split('x ');
@@ -126,6 +124,14 @@ class _RouteDetailsScreenState extends ConsumerState<RouteDetailsScreen> {
     ).animate().fadeIn(duration: 300.ms).slideY(begin: -0.1, end: 0);
   }
 
+  String? _extractZone(String? notes) {
+    if (notes != null && notes.startsWith('[ZONE:')) {
+      final closeIdx = notes.indexOf(']');
+      if (closeIdx != -1) return notes.substring(6, closeIdx);
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final stops = ref.watch(routeStopsProvider(widget.route.id.toString()));
@@ -180,6 +186,7 @@ class _RouteDetailsScreenState extends ConsumerState<RouteDetailsScreen> {
                     },
                     itemBuilder: (context, index) {
                       final stop = stops[index];
+                      final zone = _extractZone(stop.notes);
 
                       return Dismissible(
                         key: ValueKey(stop.id),
@@ -219,13 +226,30 @@ class _RouteDetailsScreenState extends ConsumerState<RouteDetailsScreen> {
                                   : Colors.grey.withValues(alpha: 0.2),
                               child: Text('${index + 1}', style: TextStyle(color: stop.isActive ? theme.colorScheme.primary : Colors.grey, fontWeight: FontWeight.bold)),
                             ),
-                            title: Text(
-                              stop.orderName, 
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: stop.isActive ? Colors.white : Colors.grey,
-                                decoration: stop.isActive ? null : TextDecoration.lineThrough,
-                              )
+                            title: Row(
+                              children: [
+                                if (zone != null) 
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    margin: const EdgeInsets.only(right: 8),
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.primary.withValues(alpha: stop.isActive ? 0.9 : 0.4),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(zone, style: const TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ),
+                                Expanded(
+                                  child: Text(
+                                    stop.orderName, 
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: stop.isActive ? Colors.white : Colors.grey,
+                                      decoration: stop.isActive ? null : TextDecoration.lineThrough,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                             subtitle: Text(
                               stop.productsToDeliver.join(', '), 
